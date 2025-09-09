@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 
 from extensions import db
-from backend.models import User
+from models import User
 
 logger = logging.getLogger(__name__)
 

@@ -7,8 +7,8 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 import logging
 
-from backend.extensions import db
-from backend.models import User, ChatSession, ChatMessage, AudioFile
+from extensions import db
+from models import User, ChatSession, ChatMessage, AudioFile
 from services.translation_service import TranslationService
 from services.location_service import LocationService
 from services.speech_service import SpeechService

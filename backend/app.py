@@ -3,7 +3,7 @@ from flask import Flask, request
 from flask_cors import CORS
 from config import Config
 from extensions import db, jwt
-from routes.auth_routes import register_routes
+from routes.__init__ import register_routes
 import logging
 
 

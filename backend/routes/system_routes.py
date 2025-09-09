@@ -4,8 +4,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 import logging
 
-from backend.extensions import db
-from backend.models import User, ChatSession, ChatMessage, AudioFile
+from extensions import db
+from models import User, ChatSession, ChatMessage, AudioFile
 from services.llm_service import AgriculturalLLMService
 from services.speech_service import SpeechService
 

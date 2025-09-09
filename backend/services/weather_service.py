@@ -1,6 +1,6 @@
 import requests
 import logging
-from backend.config import Config
+from config import Config
 
 class WeatherService:
     def __init__(self, api_key):
