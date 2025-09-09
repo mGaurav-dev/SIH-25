@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import LoginSignup from './pages/LoginSignup';
-// import Dashboard from './components/Dashboard';
+import AgriculturalChat from './pages/AgriculturalChat';
+import SettingsPage from './pages/settings';
 import './App.css';
 
 const App = () => {
@@ -81,6 +82,14 @@ const App = () => {
     setCurrentPage(page);
   };
 
+  // Handle user profile updates from settings page
+  const handleUserUpdate = (updatedUser) => {
+    setUser(prevUser => ({
+      ...prevUser,
+      ...updatedUser
+    }));
+  };
+
   return (
     <div className="App">
       {currentPage === 'login' && (
@@ -89,16 +98,32 @@ const App = () => {
           onNavigate={navigateTo}
         />
       )}
-      {/* {currentPage === 'dashboard' && isAuthenticated && (
-        <Dashboard 
+      
+      {currentPage === 'dashboard' && isAuthenticated && (
+        <AgriculturalChat 
           user={user}
           onLogout={handleLogout}
           onNavigate={navigateTo}
         />
       )}
+      
+      {currentPage === 'settings' && isAuthenticated && (
+        <SettingsPage 
+          user={user}
+          onLogout={handleLogout}
+          onNavigate={navigateTo}
+          onUserUpdate={handleUserUpdate}
+        />
+      )}
+      
       {currentPage === 'profile' && isAuthenticated && (
-        <div>Profile Page (To be implemented)</div>
-      )} */}
+        <SettingsPage 
+          user={user}
+          onLogout={handleLogout}
+          onNavigate={navigateTo}
+          onUserUpdate={handleUserUpdate}
+        />
+      )}
     </div>
   );
 };

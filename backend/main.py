@@ -7,7 +7,7 @@ from services.location_service import LocationService
 from services.weather_service import WeatherService
 from services.llm_service import AgriculturalLLMService
 from services.speech_service import SpeechService
-from backend.config import Config
+from config import Config
 import time
 
 # Configure logging
@@ -24,12 +24,16 @@ except ImportError:
     except ImportError:
         pass
 
+
 class EnhancedAgriculturalChatbot:
     def __init__(self):
         self.translation_service = TranslationService()
         self.location_service = LocationService(Config.WEATHER_API_KEY)
         self.weather_service = WeatherService(Config.WEATHER_API_KEY)
-        self.speech_service = SpeechService()
+
+        # Use a safe temporary folder for speech files
+        upload_folder = os.path.join(tempfile.gettempdir(), "speech_uploads")
+        self.speech_service = SpeechService(upload_folder)
         
         # Use Gemini for LLM
         if Config.GOOGLE_API_KEY:
