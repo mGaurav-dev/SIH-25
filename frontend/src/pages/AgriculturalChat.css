@@ -1,24 +1,23 @@
 /* App.css - Agricultural Chat Application Styles */
 
 :root {
-  --primary-color: #2E7D32;
-  --primary-light: #4CAF50;
-  --primary-dark: #1B5E20;
-  --secondary-color: #F0F4F8;
-  --text-primary: #1C1C1E;
+  --primary-color: #4CAF50;      /* Softer green */
+  --primary-light: #81C784;
+  --primary-dark: #388E3C;
+  --secondary-color: #FAFAFA;
+  --text-primary: #1F2937;       /* Dark gray for readability */
   --text-secondary: #6B7280;
-  --accent-blue: #2563EB;
-  --success-color: #10B981;
+  --accent-blue: #3B82F6;
+  --success-color: #22C55E;
   --warning-color: #F59E0B;
   --error-color: #EF4444;
-  --background: #FFFFFF;
-  --surface: #F8FAFC;
-  --border: #E5E7EB;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --background: #FFFFFF;         /* White background */
+  --surface: #FDFDFD;            /* Very light gray */
+  --border: #E5E7EB;             /* Subtle gray borders */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
 }
-
 * {
   margin: 0;
   padding: 0;

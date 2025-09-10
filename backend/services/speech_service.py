@@ -35,24 +35,34 @@ class SpeechService:
             logger.warning("SpeechRecognition not available. Install with: pip install SpeechRecognition pocketsphinx")
 
     # ---------- STT ----------
-    def speech_to_text(self, file_path: str, language: str = "en-US") -> str | None:
+    def speech_to_text(self, file_path: str = None, language: str = "en-US", duration: int = 5) -> str | None:
         """
-        Convert an audio file to text.
+        Convert an audio file to text, or record from microphone if no file_path.
         Supports wav/flac/aiff (formats SpeechRecognition can read).
         `language` should be like 'en-US', 'hi-IN', etc.
+        `duration` is used for live recording (ignored if file_path provided)
         """
         if not _SR_AVAILABLE or not self.recognizer:
             logger.error("SpeechRecognition not installed/initialized")
             return None
 
-        if not os.path.exists(file_path):
-            logger.error(f"Audio file does not exist: {file_path}")
-            return None
-
         try:
-            with sr.AudioFile(file_path) as source:
-                audio = self.recognizer.record(source)
+            # If file_path provided, read from file
+            if file_path and os.path.exists(file_path):
+                with sr.AudioFile(file_path) as source:
+                    audio = self.recognizer.record(source)
+            else:
+                # Live recording from microphone
+                with sr.Microphone() as source:
+                    logger.info("Adjusting for ambient noise...")
+                    self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                    logger.info(f"Recording for {duration} seconds...")
+                    audio = self.recognizer.listen(source, timeout=duration, phrase_time_limit=duration)
 
+            # Handle language parameter
+            if language == 'auto':
+                language = 'en-US'  # Default fallback
+            
             # Try Google first (online, free quota)
             try:
                 text = self.recognizer.recognize_google(audio, language=language)
@@ -91,6 +101,23 @@ class SpeechService:
         except Exception as e:
             logger.exception(f"text_to_speech failed: {e}")
             return None
+
+    # ---------- Language Mapping Methods (MISSING METHODS ADDED) ----------
+    def get_language_code_for_speech(self, lang_code: str) -> str:
+        """
+        Get language code for speech recognition.
+        Maps app language codes to SpeechRecognition format.
+        """
+        if lang_code == 'auto':
+            return 'auto'
+        return self.map_sr_language(lang_code)
+    
+    def get_tts_language_code(self, lang_code: str) -> str:
+        """
+        Get language code for text-to-speech.
+        Maps app language codes to gTTS format.
+        """
+        return self.map_tts_language(lang_code)
 
     # ---------- Helpers ----------
     @staticmethod

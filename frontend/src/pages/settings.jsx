@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, User, Lock, MessageSquare, Bell, LogOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings, User, Lock, MessageSquare, Bell, LogOut, Upload, Trash2, Camera } from 'lucide-react';
+import apiService from '../api/api.js';
 import './settings.css';
 
-const SettingsPage = ({ user, onNavigate, onLogout }) => {
+const SettingsPage = ({ user, onNavigate, onLogout, onUserUpdate }) => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -20,6 +21,11 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [success, setSuccess] = useState('');
+  const [avatar, setAvatar] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [userStats, setUserStats] = useState(null);
+  
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (user) {
@@ -31,7 +37,25 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
         preferred_language: user.preferred_language || 'en'
       });
     }
+    
+    // Load user stats
+    loadUserStats();
   }, [user]);
+
+  const loadUserStats = async () => {
+    try {
+      const stats = await apiService.getUserStats();
+      setUserStats(stats);
+    } catch (error) {
+      console.error('Failed to load user stats:', error);
+      // Set fallback stats
+      setUserStats({
+        total_sessions: 0,
+        total_messages: 0,
+        member_since: user?.created_at || new Date().toISOString()
+      });
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -39,7 +63,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
       ...prev,
       [name]: value
     }));
-    // Clear error when user starts typing
+    
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -54,11 +78,85 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
       ...prev,
       [name]: value
     }));
-    // Clear error when user starts typing
+    
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
         [name]: ''
+      }));
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setErrors(prev => ({
+          ...prev,
+          avatar: 'Please select an image file'
+        }));
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setErrors(prev => ({
+          ...prev,
+          avatar: 'Image must be smaller than 5MB'
+        }));
+        return;
+      }
+
+      setAvatar(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setAvatarPreview(e.target.result);
+      };
+      reader.readAsDataURL(file);
+      
+      // Clear any previous errors
+      if (errors.avatar) {
+        setErrors(prev => ({
+          ...prev,
+          avatar: ''
+        }));
+      }
+    }
+  };
+
+  const uploadAvatar = async () => {
+    if (!avatar) return null;
+
+    try {
+      const response = await apiService.uploadAvatar(avatar);
+      return response.avatar_url;
+    } catch (error) {
+      console.error('Avatar upload failed:', error);
+      throw new Error('Failed to upload avatar');
+    }
+  };
+
+  const deleteAvatar = async () => {
+    try {
+      await apiService.deleteAvatar();
+      setAvatarPreview(null);
+      setAvatar(null);
+      setSuccess('Avatar removed successfully!');
+      
+      // Update user object
+      if (onUserUpdate) {
+        onUserUpdate({ avatar: null });
+      }
+      
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (error) {
+      console.error('Failed to delete avatar:', error);
+      setErrors(prev => ({
+        ...prev,
+        avatar: 'Failed to remove avatar'
       }));
     }
   };
@@ -110,14 +208,52 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
 
     setIsLoading(true);
     setSuccess('');
+    setErrors({});
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      let avatarUrl = user?.avatar;
+      
+      // Upload avatar if changed
+      if (avatar) {
+        avatarUrl = await uploadAvatar();
+      }
+      
+      // Update profile
+      const profileData = {
+        ...formData,
+        ...(avatarUrl && { avatar: avatarUrl })
+      };
+      
+      const response = await apiService.updateUserProfile(profileData);
+      
       setSuccess('Profile updated successfully!');
+      
+      // Update user object in parent component
+      if (onUserUpdate) {
+        onUserUpdate({
+          ...formData,
+          ...(avatarUrl && { avatar: avatarUrl })
+        });
+      }
+      
+      // Clear avatar selection
+      setAvatar(null);
+      setAvatarPreview(null);
+      
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
-      setErrors({ general: 'Failed to update profile. Please try again.' });
+      console.error('Profile update failed:', error);
+      
+      let errorMessage = 'Failed to update profile. Please try again.';
+      if (error.message.includes('Authentication')) {
+        errorMessage = 'Session expired. Please log in again.';
+      } else if (error.message.includes('email')) {
+        errorMessage = 'Email address is already taken.';
+      } else if (error.message.includes('avatar')) {
+        errorMessage = 'Failed to upload avatar. Please try a different image.';
+      }
+      
+      setErrors({ general: errorMessage });
     } finally {
       setIsLoading(false);
     }
@@ -125,7 +261,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
 
   const handlePasswordSave = async () => {
     if (!passwordData.currentPassword && !passwordData.newPassword) {
-      return; // No password change requested
+      return;
     }
 
     const validationErrors = validatePassword();
@@ -136,21 +272,47 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
 
     setIsLoading(true);
     setSuccess('');
+    setErrors({});
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await apiService.changePassword({
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      });
+      
       setPasswordData({
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       });
+      
       setSuccess('Password updated successfully!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (error) {
-      setErrors({ password: 'Failed to update password. Please try again.' });
+      console.error('Password change failed:', error);
+      
+      let errorMessage = 'Failed to update password. Please try again.';
+      if (error.message.includes('current password')) {
+        errorMessage = 'Current password is incorrect.';
+      } else if (error.message.includes('Authentication')) {
+        errorMessage = 'Session expired. Please log in again.';
+      }
+      
+      setErrors({ password: errorMessage });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const formatMemberSince = (dateString) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long' 
+      });
+    } catch {
+      return 'Recently';
     }
   };
 
@@ -163,7 +325,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
             <svg className="logo-icon" fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
               <path d="M4 42.4379C4 42.4379 14.0962 36.0744 24 41.1692C35.0664 46.8624 44 42.2078 44 42.2078L44 7.01134C44 7.01134 35.068 11.6577 24.0031 5.96913C14.0971 0.876274 4 7.27094 4 7.27094L4 42.4379Z" fill="currentColor"></path>
             </svg>
-            <h1>AgriQuery</h1>
+            <h1>AgriAssist</h1>
           </div>
         </div>
         
@@ -204,7 +366,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
             </button>
             <div 
               className="user-avatar" 
-              style={{backgroundImage: `url(${user?.avatar || 'https://lh3.googleusercontent.com/aida-public/AB6AXuAaVbolBSpJqtR_Erc2nNL9r4TAp7kC1UhQMyX_YqqfUvMnnriJhvvFqmZ4LFsXQsGXektbyt6e-sj8pKBKY8rh5MchaKHoy_EPePQibn57jOS_vxUxtDXTQIkYlZUXte2vQc5r_Buo0GlvrUxdiWz01S_RG1Qi_3qCm64CcVlXG7XHzC69XrYMA_3norcTgfc4jpSmTM_eYLpw9Mbxh3dzH8Wezbpm9lzTXZvJayueBFHuZl_QCkWuvUNERnuYx38e0b0Nkw_0HWH1'})`}}
+              style={{backgroundImage: `url(${avatarPreview || user?.avatar || 'https://lh3.googleusercontent.com/aida-public/AB6AXuAaVbolBSpJqtR_Erc2nNL9r4TAp7kC1UhQMyX_YqqfUvMnnriJhvvFqmZ4LFsXQsGXektbyt6e-sj8pKBKY8rh5MchaKHoy_EPePQibn57jOS_vxUxtDXTQIkYlZUXte2vQc5r_Buo0GlvrUxdiWz01S_RG1Qi_3qCm64CcVlXG7XHzC69XrYMA_3norcTgfc4jpSmTM_eYLpw9Mbxh3dzH8Wezbpm9lzTXZvJayueBFHuZl_QCkWuvUNERnuYx38e0b0Nkw_0HWH1'})`}}
             ></div>
           </div>
         </header>
@@ -226,6 +388,36 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
               </div>
             )}
 
+            {/* Account Statistics */}
+            {userStats && (
+              <div className="settings-section">
+                <div className="section-header">
+                  <h3>
+                    <User className="section-icon" />
+                    Account Overview
+                  </h3>
+                  <p>Your account activity and statistics.</p>
+                </div>
+                
+                <div className="section-content">
+                  <div className="stats-grid">
+                    <div className="stat-item">
+                      <div className="stat-value">{userStats.total_sessions || 0}</div>
+                      <div className="stat-label">Chat Sessions</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-value">{userStats.total_messages || 0}</div>
+                      <div className="stat-label">Messages Sent</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-value">{formatMemberSince(userStats.member_since)}</div>
+                      <div className="stat-label">Member Since</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Profile Information Section */}
             <div className="settings-section">
               <div className="section-header">
@@ -240,12 +432,44 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                 <div className="profile-picture-section">
                   <div 
                     className="profile-picture" 
-                    style={{backgroundImage: `url(${user?.avatar || 'https://lh3.googleusercontent.com/aida-public/AB6AXuAaVbolBSpJqtR_Erc2nNL9r4TAp7kC1UhQMyX_YqqfUvMnnriJhvvFqmZ4LFsXQsGXektbyt6e-sj8pKBKY8rh5MchaKHoy_EPePQibn57jOS_vxUxtDXTQIkYlZUXte2vQc5r_Buo0GlvrUxdiWz01S_RG1Qi_3qCm64CcVlXG7XHzC69XrYMA_3norcTgfc4jpSmTM_eYLpw9Mbxh3dzH8Wezbpm9lzTXZvJayueBFHuZl_QCkWuvUNERnuYx38e0b0Nkw_0HWH1'})`}}
-                  ></div>
-                  <div className="picture-actions">
-                    <button className="btn-primary" type="button">Change Picture</button>
-                    <button className="btn-secondary" type="button">Remove</button>
+                    style={{backgroundImage: `url(${avatarPreview || user?.avatar || 'https://lh3.googleusercontent.com/aida-public/AB6AXuAaVbolBSpJqtR_Erc2nNL9r4TAp7kC1UhQMyX_YqqfUvMnnriJhvvFqmZ4LFsXQsGXektbyt6e-sj8pKBKY8rh5MchaKHoy_EPePQibn57jOS_vxUxtDXTQIkYlZUXte2vQc5r_Buo0GlvrUxdiWz01S_RG1Qi_3qCm64CcVlXG7XHzC69XrYMA_3norcTgfc4jpSmTM_eYLpw9Mbxh3dzH8Wezbpm9lzTXZvJayueBFHuZl_QCkWuvUNERnuYx38e0b0Nkw_0HWH1'})`}}
+                  >
+                    {!avatarPreview && !user?.avatar && (
+                      <div className="avatar-placeholder">
+                        <Camera size={24} />
+                      </div>
+                    )}
                   </div>
+                  <div className="picture-actions">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                      style={{ display: 'none' }}
+                    />
+                    <button 
+                      className="btn-primary" 
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isLoading}
+                    >
+                      <Upload size={16} />
+                      Change Picture
+                    </button>
+                    {(user?.avatar || avatarPreview) && (
+                      <button 
+                        className="btn-secondary" 
+                        type="button"
+                        onClick={deleteAvatar}
+                        disabled={isLoading}
+                      >
+                        <Trash2 size={16} />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {errors.avatar && <span className="error-text">{errors.avatar}</span>}
                 </div>
 
                 <div className="form-grid">
@@ -259,6 +483,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       onChange={handleInputChange}
                       className={errors.name ? 'error' : ''}
                       placeholder="Enter your full name"
+                      disabled={isLoading}
                     />
                     {errors.name && <span className="error-text">{errors.name}</span>}
                   </div>
@@ -273,6 +498,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       onChange={handleInputChange}
                       className={errors.email ? 'error' : ''}
                       placeholder="Enter your email"
+                      disabled={isLoading}
                     />
                     {errors.email && <span className="error-text">{errors.email}</span>}
                   </div>
@@ -287,6 +513,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       onChange={handleInputChange}
                       className={errors.location ? 'error' : ''}
                       placeholder="Enter your location (City, State, Country)"
+                      disabled={isLoading}
                     />
                     {errors.location && <span className="error-text">{errors.location}</span>}
                   </div>
@@ -300,6 +527,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       value={formData.phone_number}
                       onChange={handleInputChange}
                       placeholder="Enter your phone number"
+                      disabled={isLoading}
                     />
                   </div>
 
@@ -310,6 +538,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       name="preferred_language"
                       value={formData.preferred_language}
                       onChange={handleInputChange}
+                      disabled={isLoading}
                     >
                       <option value="en">English</option>
                       <option value="hi">हिंदी (Hindi)</option>
@@ -357,6 +586,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       onChange={handlePasswordChange}
                       className={errors.currentPassword ? 'error' : ''}
                       placeholder="Enter current password"
+                      disabled={isLoading}
                     />
                     {errors.currentPassword && <span className="error-text">{errors.currentPassword}</span>}
                   </div>
@@ -371,6 +601,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       onChange={handlePasswordChange}
                       className={errors.newPassword ? 'error' : ''}
                       placeholder="Enter new password"
+                      disabled={isLoading}
                     />
                     {errors.newPassword && <span className="error-text">{errors.newPassword}</span>}
                   </div>
@@ -385,6 +616,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                       onChange={handlePasswordChange}
                       className={errors.confirmPassword ? 'error' : ''}
                       placeholder="Confirm new password"
+                      disabled={isLoading}
                     />
                     {errors.confirmPassword && <span className="error-text">{errors.confirmPassword}</span>}
                   </div>
@@ -396,7 +628,7 @@ const SettingsPage = ({ user, onNavigate, onLogout }) => {
                   <button 
                     className="btn-primary"
                     onClick={handlePasswordSave}
-                    disabled={isLoading}
+                    disabled={isLoading || (!passwordData.currentPassword && !passwordData.newPassword)}
                   >
                     {isLoading ? 'Updating...' : 'Update Password'}
                   </button>

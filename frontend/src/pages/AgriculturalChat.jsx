@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Send, Plus, Settings, User, MessageSquare, MapPin, Sun, Bell, Menu, X, LogOut } from 'lucide-react';
+import { Mic, MicOff, Send, Plus, Settings, User, MessageSquare, MapPin, Sun, Bell, Menu, X, LogOut, Volume2, Play, Pause } from 'lucide-react';
 import apiService from '../api/api.js';
 import AudioRecorder from './AudioRecorder';
 import './AgriculturalChat.css';
@@ -25,17 +25,18 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
   ]);
   
   const [inputText, setInputText] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [location, setLocation] = useState(user.location || 'Narmadapuram, Madhya Pradesh, India');
   const [language, setLanguage] = useState(user.preferred_language || 'en');
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState(null);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [playingAudio, setPlayingAudio] = useState(null);
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
+  const currentAudioRef = useRef(null);
 
   // Update user state when props change
   useEffect(() => {
@@ -46,11 +47,22 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     }
   }, [propUser]);
 
-  // Initialize component
+  // Initialize component and ensure token is set
   useEffect(() => {
-    loadInitialData();
-    getUserLocation();
+    initializeComponent();
   }, []);
+
+  const initializeComponent = async () => {
+    // Ensure apiService has the current token
+    const token = localStorage.getItem('access_token');
+    if (token && !apiService.getToken()) {
+      apiService.setToken(token);
+    }
+    
+    // Load initial data
+    await loadInitialData();
+    getUserLocation();
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -66,6 +78,11 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      // Cleanup audio on unmount
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
     };
   }, [profileDropdownOpen]);
 
@@ -94,24 +111,82 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
 
   const loadInitialData = async () => {
     try {
-      // const sessionsData = await apiService.getChatSessions();
-      // setSessions(sessionsData.sessions || []);
-      // Mock data for demo
-      setSessions([]);
+      // Double-check that apiService has the token before making requests
+      const token = localStorage.getItem('access_token');
+      if (token && !apiService.getToken()) {
+        apiService.setToken(token);
+      }
+
+      if (!apiService.isAuthenticated()) {
+        console.error('ApiService is not authenticated');
+        setError('Authentication required. Please log in again.');
+        if (onLogout) {
+          onLogout();
+        }
+        return;
+      }
+
+      const sessionsData = await apiService.getChatSessions();
+      setSessions(sessionsData.sessions || []);
     } catch (error) {
       console.error('Failed to load initial data:', error);
+      
+      // Handle authentication errors specifically
+      if (error.message.includes('Authentication') || error.message.includes('401')) {
+        setError('Session expired. Please log in again.');
+        if (onLogout) {
+          onLogout();
+        }
+        return;
+      }
+      
       setError('Failed to load chat sessions');
+      // Keep sessions empty if API fails
+      setSessions([]);
     }
   };
 
   const handleError = (message, error) => {
     console.error(message, error);
+    
+    // Handle authentication errors
+    if (error?.message?.includes('Authentication') || error?.message?.includes('401')) {
+      setError('Session expired. Please log in again.');
+      if (onLogout) {
+        setTimeout(() => onLogout(), 2000);
+      }
+      return;
+    }
+    
     setError(message);
     setTimeout(() => setError(null), 5000);
   };
 
+  const ensureAuthentication = () => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+    
+    if (!apiService.getToken()) {
+      apiService.setToken(token);
+    }
+    
+    if (!apiService.isAuthenticated()) {
+      throw new Error('Authentication failed');
+    }
+  };
+
   const sendTextMessage = async () => {
     if (!inputText.trim() || isLoading) return;
+
+    try {
+      // Ensure we're authenticated before making the request
+      ensureAuthentication();
+    } catch (error) {
+      handleError('Authentication required. Please log in again.', error);
+      return;
+    }
 
     const userMessage = {
       id: Date.now(),
@@ -126,19 +201,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     setInputText('');
 
     try {
-      // Mock API response for demo
-      setTimeout(() => {
-        const aiMessage = {
-          id: Date.now() + 1,
-          message_type: 'assistant',
-          content: `I understand you're asking about "${currentInput}". This is a demo response. In a real implementation, this would connect to your agricultural AI service to provide expert farming advice.`,
-          timestamp: new Date().toISOString()
-        };
-        setMessages(prev => [...prev, aiMessage]);
-        setIsLoading(false);
-      }, 1500);
-
-      /*
       const response = await apiService.sendTextQuery({
         query: currentInput,
         location: location,
@@ -149,13 +211,14 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       const aiMessage = {
         id: Date.now() + 1,
         message_type: 'assistant',
-        content: response.response,
+        content: response.response || response.message || 'I received your message but couldn\'t generate a proper response.',
         timestamp: new Date().toISOString(),
         weather_data: response.weather
       };
 
       setMessages(prev => [...prev, aiMessage]);
       
+      // Update session if response contains session_id
       if (response.session_id && !currentSession) {
         setCurrentSession(response.session_id);
         const newSession = {
@@ -165,92 +228,131 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         };
         setSessions(prev => [newSession, ...prev]);
       }
-      */
 
     } catch (error) {
-      handleError('Failed to send message. Please try again.', error);
-      const errorMessage = {
+      console.error('Text query error:', error);
+      let errorMessage = 'Sorry, I encountered an error processing your request. Please try again.';
+      
+      // Handle specific error types from backend
+      if (error.message.includes('Query cannot be empty')) {
+        errorMessage = 'Please provide a question or message.';
+      } else if (error.message.includes('Query too short')) {
+        errorMessage = 'Your message is too short. Please provide more details.';
+      } else if (error.message.includes('Location is required')) {
+        errorMessage = 'Location information is required. Please check your settings.';
+      } else if (error.message.includes('Authentication') || error.message.includes('401')) {
+        handleError('Session expired. Please log in again.', error);
+        return;
+      } else if (error.message.includes('AI service')) {
+        errorMessage = 'AI service is temporarily unavailable. Please try again later.';
+      }
+      
+      handleError(errorMessage, error);
+      const errorMessageObj = {
         id: Date.now() + 1,
         message_type: 'assistant',
-        content: 'Sorry, I encountered an error processing your request. Please try again.',
+        content: errorMessage,
         timestamp: new Date().toISOString()
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [...prev, errorMessageObj]);
+    } finally {
       setIsLoading(false);
     }
   };
 
   const handleVoiceRecording = async (audioBlob) => {
+    try {
+      // Ensure we're authenticated before making the request
+      ensureAuthentication();
+    } catch (error) {
+      handleError('Authentication required. Please log in again.', error);
+      return;
+    }
+
+    // Validate audio blob first
+    if (!apiService.validateAudioBlob(audioBlob)) {
+      handleError('Invalid audio recording. Please try again.', new Error('Invalid audio blob'));
+      return;
+    }
+
     setIsLoading(true);
     
     try {
-      // Mock voice processing for demo
-      setTimeout(() => {
-        const userMessage = {
-          id: Date.now(),
-          message_type: 'user',
-          content: 'This is a transcribed voice message (demo)',
-          input_type: 'voice',
-          timestamp: new Date().toISOString()
-        };
-
-        const aiMessage = {
-          id: Date.now() + 1,
-          message_type: 'assistant',
-          content: 'I heard your voice message. This is a demo response to voice input.',
-          timestamp: new Date().toISOString()
-        };
-
-        setMessages(prev => [...prev, userMessage, aiMessage]);
-        setIsLoading(false);
-      }, 2000);
-
-      /*
       const response = await apiService.processVoiceQuery(audioBlob, {
         location: location,
         session_id: currentSession,
-        language: language
+        language: language,
+        translate_response: true // Request translated audio response
       });
 
+      // Create user message with recognized text
       const userMessage = {
         id: Date.now(),
         message_type: 'user',
-        content: response.recognized_text,
+        content: response.recognized_text || 'Voice message processed',
         input_type: 'voice',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        original_language: response.detected_language || language
       };
 
+      // Create AI response message with both text and audio
       const aiMessage = {
         id: Date.now() + 1,
         message_type: 'assistant',
-        content: response.response_text,
-        audio_url: response.audio_download_url,
+        content: response.response_text || response.response || 'I processed your voice message.',
+        translated_content: response.translated_text || null, // Translated version if different language
+        audio_url: response.audio_url || response.audio_download_url,
+        translated_audio_url: response.translated_audio_url, // Translated audio in user's language
         timestamp: new Date().toISOString(),
-        weather_data: response.weather
+        weather_data: response.weather,
+        response_language: response.language || language,
+        translation_language: response.translation_language || language
       };
 
       setMessages(prev => [...prev, userMessage, aiMessage]);
       
+      // Update session if response contains session_id
       if (response.session_id && !currentSession) {
         setCurrentSession(response.session_id);
         const newSession = {
           id: response.session_id,
-          title: response.recognized_text.substring(0, 50) + '...',
+          title: response.recognized_text ? 
+                 response.recognized_text.substring(0, 50) + (response.recognized_text.length > 50 ? '...' : '') : 
+                 'Voice Chat',
           created_at: 'Just now'
         };
         setSessions(prev => [newSession, ...prev]);
       }
-      */
 
     } catch (error) {
       handleError('Failed to process voice input. Please try again.', error);
+      const errorMessage = {
+        id: Date.now() + 1,
+        message_type: 'assistant',
+        content: 'Sorry, I couldn\'t process your voice message. Please try again.',
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
     }
   };
 
   const createNewSession = async () => {
     try {
-      // Mock session creation for demo
+      ensureAuthentication();
+      const response = await apiService.createChatSession('New Chat');
+      setCurrentSession(response.session.id);
+      setSessions(prev => [response.session, ...prev]);
+      setMessages([{
+        id: 1,
+        message_type: 'assistant',
+        content: "Hello! How can I assist you today with your farming questions?",
+        timestamp: new Date().toISOString()
+      }]);
+    } catch (error) {
+      handleError('Failed to create new session', error);
+      // Fallback: create local session
       const newSession = {
         id: Date.now(),
         title: 'New Chat',
@@ -264,52 +366,78 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         content: "Hello! How can I assist you today with your farming questions?",
         timestamp: new Date().toISOString()
       }]);
-
-      /*
-      const response = await apiService.createChatSession('New Chat');
-      setCurrentSession(response.session.id);
-      setSessions(prev => [response.session, ...prev]);
-      setMessages([{
-        id: 1,
-        message_type: 'assistant',
-        content: "Hello! How can I assist you today with your farming questions?",
-        timestamp: new Date().toISOString()
-      }]);
-      */
-    } catch (error) {
-      handleError('Failed to create new session', error);
     }
   };
 
   const loadSession = async (sessionId) => {
     try {
+      ensureAuthentication();
       setCurrentSession(sessionId);
-      // Mock loading session messages
+      const response = await apiService.getChatMessages(sessionId);
+      setMessages(response.messages || [{
+        id: 1,
+        message_type: 'assistant',
+        content: "Hello! How can I assist you today with your farming questions?",
+        timestamp: new Date().toISOString()
+      }]);
+    } catch (error) {
+      handleError('Failed to load session', error);
+      // Fallback: show default message
       setMessages([{
         id: 1,
         message_type: 'assistant',
         content: "Hello! How can I assist you today with your farming questions?",
         timestamp: new Date().toISOString()
       }]);
-
-      /*
-      const response = await apiService.getChatMessages(sessionId);
-      setMessages(response.messages || []);
-      */
-    } catch (error) {
-      handleError('Failed to load session', error);
     }
   };
 
-  const playAudio = async (audioUrl) => {
-    if (audioUrl) {
-      try {
-        const audio = new Audio(audioUrl);
-        await audio.play();
-      } catch (error) {
-        console.error('Failed to play audio:', error);
-      }
+  const playAudio = async (audioUrl, messageId) => {
+    if (!audioUrl) {
+      console.warn('No audio URL provided');
+      return;
     }
+
+    try {
+      // Stop any currently playing audio
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+        setPlayingAudio(null);
+      }
+
+      setPlayingAudio(messageId);
+      
+      const audio = new Audio(audioUrl);
+      currentAudioRef.current = audio;
+
+      audio.addEventListener('ended', () => {
+        setPlayingAudio(null);
+        currentAudioRef.current = null;
+      });
+
+      audio.addEventListener('error', (e) => {
+        console.error('Audio playback failed:', e);
+        setPlayingAudio(null);
+        currentAudioRef.current = null;
+        handleError('Failed to play audio response', new Error('Audio playback failed'));
+      });
+
+      await audio.play();
+    } catch (error) {
+      console.error('Failed to play audio:', error);
+      setPlayingAudio(null);
+      currentAudioRef.current = null;
+      handleError('Failed to play audio response', error);
+    }
+  };
+
+  const stopAudio = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    setPlayingAudio(null);
   };
 
   const handleKeyPress = (e) => {
@@ -353,6 +481,20 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     return date.toLocaleDateString();
   };
 
+  const getLanguageName = (langCode) => {
+    const languages = {
+      'en': 'English',
+      'hi': 'हिंदी',
+      'mr': 'मराठी',
+      'gu': 'ગુજરાતી',
+      'ta': 'தமிழ்',
+      'te': 'తెలుగు',
+      'kn': 'ಕನ್ನಡ',
+      'bn': 'বাংলা'
+    };
+    return languages[langCode] || langCode.toUpperCase();
+  };
+
   // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
@@ -360,6 +502,67 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 120) + 'px';
     }
   }, [inputText]);
+
+  const renderAudioControls = (message) => {
+    const hasOriginalAudio = message.audio_url;
+    const hasTranslatedAudio = message.translated_audio_url;
+    const isPlaying = playingAudio === message.id;
+    
+    if (!hasOriginalAudio && !hasTranslatedAudio) {
+      return null;
+    }
+
+    return (
+      <div className="audio-controls">
+        {hasOriginalAudio && (
+          <button 
+            className={`audio-btn ${isPlaying ? 'playing' : ''}`}
+            onClick={() => isPlaying ? stopAudio() : playAudio(message.audio_url, message.id)}
+            title={`Play response in ${getLanguageName(message.response_language || 'en')}`}
+          >
+            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+            <Volume2 size={14} />
+            <span>Original</span>
+          </button>
+        )}
+        
+        {hasTranslatedAudio && message.translation_language !== message.response_language && (
+          <button 
+            className={`audio-btn translated ${isPlaying ? 'playing' : ''}`}
+            onClick={() => isPlaying ? stopAudio() : playAudio(message.translated_audio_url, `${message.id}_translated`)}
+            title={`Play response in ${getLanguageName(message.translation_language || language)}`}
+          >
+            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+            <Volume2 size={14} />
+            <span>{getLanguageName(message.translation_language || language)}</span>
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderMessageContent = (message) => {
+    const showTranslated = message.translated_content && 
+                          message.translated_content !== message.content &&
+                          message.translation_language !== message.response_language;
+
+    return (
+      <div className="message-text-content">
+        <div className={`message-bubble ${message.message_type}`}>
+          {message.content}
+        </div>
+        
+        {showTranslated && (
+          <div className="message-bubble translated">
+            <div className="translation-label">
+              Translated to {getLanguageName(message.translation_language)}:
+            </div>
+            {message.translated_content}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="app-container">
@@ -453,20 +656,19 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
                     <span className="message-sender">
                       {message.message_type === 'assistant' ? 'AgriAssist AI' : user.name}
                     </span>
-                    {message.input_type === 'voice' && <Mic className="voice-indicator" />}
+                    {message.input_type === 'voice' && (
+                      <div className="voice-indicator">
+                        <Mic size={14} />
+                        <span>Voice</span>
+                      </div>
+                    )}
                     <span className="message-time">{formatTimestamp(message.timestamp)}</span>
                   </div>
-                  <div className={`message-bubble ${message.message_type}`}>
-                    {message.content}
-                  </div>
-                  {message.audio_url && (
-                    <button 
-                      className="play-audio-btn" 
-                      onClick={() => playAudio(message.audio_url)}
-                    >
-                      🔊 Play Audio
-                    </button>
-                  )}
+                  
+                  {renderMessageContent(message)}
+                  
+                  {message.message_type === 'assistant' && renderAudioControls(message)}
+                  
                   {message.weather_data && (
                     <div className="weather-info">
                       <Sun className="weather-icon" />
@@ -516,6 +718,9 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
                   onRecordingComplete={handleVoiceRecording}
                   disabled={isLoading}
                   maxDuration={120}
+                  minDuration={1}
+                  showWaveform={true}
+                  audioFormat="wav"
                 />
                 <button
                   className="send-btn"
@@ -587,6 +792,79 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
           </div>
         </aside>
       </main>
+
+      <style jsx>{`
+        .audio-controls {
+          display: flex;
+          gap: 8px;
+          margin-top: 8px;
+          align-items: center;
+        }
+
+        .audio-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 10px;
+          background: rgba(0, 0, 0, 0.05);
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 16px;
+          color: #374151;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .audio-btn:hover {
+          background: rgba(0, 0, 0, 0.1);
+          transform: translateY(-1px);
+        }
+
+        .audio-btn.playing {
+          background: #3b82f6;
+          color: white;
+          border-color: #3b82f6;
+        }
+
+        .audio-btn.translated {
+          background: #10b981;
+          color: white;
+          border-color: #10b981;
+        }
+
+        .audio-btn.translated:hover {
+          background: #059669;
+        }
+
+        .message-text-content {
+          width: 100%;
+        }
+
+        .message-bubble.translated {
+          margin-top: 8px;
+          background: #f0f9ff;
+          border-left: 3px solid #3b82f6;
+          padding: 12px;
+        }
+
+        .translation-label {
+          font-size: 11px;
+          color: #6b7280;
+          margin-bottom: 6px;
+          font-weight: 500;
+        }
+
+        .voice-indicator {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          background: rgba(16, 185, 129, 0.1);
+          padding: 2px 6px;
+          border-radius: 10px;
+          color: #10b981;
+          font-size: 10px;
+        }
+      `}</style>
     </div>
   );
 };

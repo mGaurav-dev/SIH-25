@@ -24,16 +24,12 @@ except ImportError:
     except ImportError:
         pass
 
-
 class EnhancedAgriculturalChatbot:
     def __init__(self):
         self.translation_service = TranslationService()
         self.location_service = LocationService(Config.WEATHER_API_KEY)
         self.weather_service = WeatherService(Config.WEATHER_API_KEY)
-
-        # Use a safe temporary folder for speech files
-        upload_folder = os.path.join(tempfile.gettempdir(), "speech_uploads")
-        self.speech_service = SpeechService(upload_folder)
+        self.speech_service = SpeechService()
         
         # Use Gemini for LLM
         if Config.GOOGLE_API_KEY:
