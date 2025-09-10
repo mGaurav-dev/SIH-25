@@ -59,17 +59,26 @@ class TranslationService:
         """Get language name from language code"""
         return self.language_codes.get(lang_code, 'unknown')
     
-    def translate_to_english(self, text):
-        """Translate text to English"""
+    def translate_to_english(self, text, source_language=None):
+        """FIXED: Translate text to English with optional source language parameter"""
         try:
             # Skip translation if already English
             if self.is_english(text):
                 return text
             
-            # Use Google Translator with auto-detect
-            translator = GoogleTranslator(source='auto', target='en')
+            # Detect source language if not provided
+            if not source_language:
+                source_language = self.detect_language(text)
+                logging.info(f"Auto-detected source language: {source_language}")
+            
+            # Skip if source is already English
+            if source_language == 'en':
+                return text
+            
+            # Use Google Translator
+            translator = GoogleTranslator(source=source_language, target='en')
             result = translator.translate(text)
-            logging.info(f"Translated to English: {result}")
+            logging.info(f"Translated '{text[:50]}...' from {source_language} to English: '{result[:50]}...'")
             return result if result else text
             
         except Exception as e:
@@ -79,13 +88,18 @@ class TranslationService:
     def translate_from_english(self, text, target_language_code):
         """Translate from English to target language using language code"""
         try:
+            # Skip if target is English
             if target_language_code == 'en':
                 return text
             
-            # Translate using the language code directly
+            # Skip if text is empty
+            if not text or not text.strip():
+                return text
+            
+            # Use Google Translator
             translator = GoogleTranslator(source='en', target=target_language_code)
             result = translator.translate(text)
-            logging.info(f"Translated from English to {target_language_code}: {result}")
+            logging.info(f"Translated '{text[:50]}...' from English to {target_language_code}: '{result[:50]}...'")
             return result if result else text
             
         except Exception as e:
@@ -100,8 +114,36 @@ class TranslationService:
                 
             translator = GoogleTranslator(source=source_lang, target=target_lang)
             result = translator.translate(text)
+            logging.info(f"Translated '{text[:50]}...' from {source_lang} to {target_lang}: '{result[:50]}...'")
             return result if result else text
             
         except Exception as e:
             logging.error(f"Translation failed: {e}")
             return text
+    
+    def batch_translate(self, texts, source_lang='auto', target_lang='en'):
+        """Translate multiple texts at once"""
+        try:
+            if source_lang == target_lang:
+                return texts
+            
+            translator = GoogleTranslator(source=source_lang, target=target_lang)
+            results = []
+            
+            for text in texts:
+                if not text or not text.strip():
+                    results.append(text)
+                    continue
+                
+                try:
+                    result = translator.translate(text)
+                    results.append(result if result else text)
+                except Exception as e:
+                    logging.warning(f"Individual translation failed: {e}")
+                    results.append(text)
+            
+            return results
+            
+        except Exception as e:
+            logging.error(f"Batch translation failed: {e}")
+            return texts

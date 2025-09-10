@@ -192,7 +192,9 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       id: Date.now(),
       message_type: 'user',
       content: inputText,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      original_language: language,
+      input_type: 'text'
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -208,12 +210,20 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         language: language
       });
 
+      // Enhanced message creation with translation support
       const aiMessage = {
         id: Date.now() + 1,
         message_type: 'assistant',
-        content: response.response || response.message || 'I received your message but couldn\'t generate a proper response.',
+        content: response.response || response.response_text || response.message || 'I received your message but couldn\'t generate a proper response.',
+        original_content: response.original_response || response.original_english_text || null, // Store original English
+        translated_content: response.translated_text || null, // Store translated version
         timestamp: new Date().toISOString(),
-        weather_data: response.weather
+        weather_data: response.weather,
+        audio_url: response.audio_url || response.audio_download_url,
+        translated_audio_url: response.translated_audio_url || response.translated_audio_download_url,
+        response_language: response.response_language || language,
+        translation_language: response.translation_language || language,
+        detected_language: response.detected_language || language
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -295,18 +305,20 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         original_language: response.detected_language || language
       };
 
-      // Create AI response message with both text and audio
+      // Enhanced AI response message with translation support
       const aiMessage = {
         id: Date.now() + 1,
         message_type: 'assistant',
         content: response.response_text || response.response || 'I processed your voice message.',
+        original_content: response.original_response || null, // Original English response
         translated_content: response.translated_text || null, // Translated version if different language
         audio_url: response.audio_url || response.audio_download_url,
         translated_audio_url: response.translated_audio_url, // Translated audio in user's language
         timestamp: new Date().toISOString(),
         weather_data: response.weather,
-        response_language: response.language || language,
-        translation_language: response.translation_language || language
+        response_language: response.response_language || language,
+        translation_language: response.translation_language || language,
+        detected_language: response.detected_language || language
       };
 
       setMessages(prev => [...prev, userMessage, aiMessage]);
@@ -503,10 +515,14 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     }
   }, [inputText]);
 
+  // Enhanced audio controls with better language prioritization
   const renderAudioControls = (message) => {
-    const hasOriginalAudio = message.audio_url;
+    const hasOriginalAudio = message.audio_url && !message.translated_audio_url;
     const hasTranslatedAudio = message.translated_audio_url;
+    const hasBothAudios = message.audio_url && message.translated_audio_url;
+    
     const isPlaying = playingAudio === message.id;
+    const isTranslatedPlaying = playingAudio === `${message.id}_translated`;
     
     if (!hasOriginalAudio && !hasTranslatedAudio) {
       return null;
@@ -514,52 +530,88 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
 
     return (
       <div className="audio-controls">
-        {hasOriginalAudio && (
+        {/* Primary audio button - prioritize user's language */}
+        {hasTranslatedAudio && (
           <button 
-            className={`audio-btn ${isPlaying ? 'playing' : ''}`}
-            onClick={() => isPlaying ? stopAudio() : playAudio(message.audio_url, message.id)}
-            title={`Play response in ${getLanguageName(message.response_language || 'en')}`}
+            className={`audio-btn primary ${isTranslatedPlaying ? 'playing' : ''}`}
+            onClick={() => isTranslatedPlaying ? stopAudio() : playAudio(message.translated_audio_url, `${message.id}_translated`)}
+            title={`Play response in ${getLanguageName(message.translation_language || language)}`}
           >
-            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+            {isTranslatedPlaying ? <Pause size={16} /> : <Play size={16} />}
             <Volume2 size={14} />
-            <span>Original</span>
+            <span>{getLanguageName(message.translation_language || language)}</span>
           </button>
         )}
         
-        {hasTranslatedAudio && message.translation_language !== message.response_language && (
+        {/* Show original audio button */}
+        {hasOriginalAudio && (
           <button 
-            className={`audio-btn translated ${isPlaying ? 'playing' : ''}`}
-            onClick={() => isPlaying ? stopAudio() : playAudio(message.translated_audio_url, `${message.id}_translated`)}
-            title={`Play response in ${getLanguageName(message.translation_language || language)}`}
+            className={`audio-btn ${hasBothAudios ? 'secondary' : 'primary'} ${isPlaying ? 'playing' : ''}`}
+            onClick={() => isPlaying ? stopAudio() : playAudio(message.audio_url, message.id)}
+            title={hasBothAudios ? "Play original English response" : "Play audio response"}
           >
             {isPlaying ? <Pause size={16} /> : <Play size={16} />}
             <Volume2 size={14} />
-            <span>{getLanguageName(message.translation_language || language)}</span>
+            <span>{hasBothAudios ? 'English' : 'Audio'}</span>
           </button>
         )}
       </div>
     );
   };
 
+  // Enhanced message content rendering with proper translation display
   const renderMessageContent = (message) => {
-    const showTranslated = message.translated_content && 
-                          message.translated_content !== message.content &&
-                          message.translation_language !== message.response_language;
+    // For user messages in non-English, show both original and translation if available
+    if (message.message_type === 'user' && message.original_language && message.original_language !== 'en') {
+      return (
+        <div className="message-text-content">
+          <div className={`message-bubble ${message.message_type}`}>
+            {message.content}
+          </div>
+          {message.translated_content && message.translated_content !== message.content && (
+            <div className="message-bubble english-translation">
+              <div className="translation-label">
+                English: 
+              </div>
+              {message.translated_content}
+            </div>
+          )}
+        </div>
+      );
+    }
 
+    // For assistant messages, prioritize user's language
+    if (message.message_type === 'assistant') {
+      const userLanguage = language || 'en';
+      const showOriginal = message.original_content && 
+                          message.original_content !== message.content &&
+                          userLanguage !== 'en' &&
+                          message.original_content.trim() !== message.content.trim();
+
+      return (
+        <div className="message-text-content">
+          <div className={`message-bubble ${message.message_type}`}>
+            {message.content} {/* This should be in user's language */}
+          </div>
+          
+          {showOriginal && (
+            <div className="message-bubble english-original">
+              <div className="translation-label">
+                Original (English):
+              </div>
+              {message.original_content}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Default case
     return (
       <div className="message-text-content">
         <div className={`message-bubble ${message.message_type}`}>
           {message.content}
         </div>
-        
-        {showTranslated && (
-          <div className="message-bubble translated">
-            <div className="translation-label">
-              Translated to {getLanguageName(message.translation_language)}:
-            </div>
-            {message.translated_content}
-          </div>
-        )}
       </div>
     );
   };
@@ -662,6 +714,11 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
                         <span>Voice</span>
                       </div>
                     )}
+                    {message.detected_language && message.detected_language !== 'en' && (
+                      <div className="language-indicator">
+                        <span>{getLanguageName(message.detected_language)}</span>
+                      </div>
+                    )}
                     <span className="message-time">{formatTimestamp(message.timestamp)}</span>
                   </div>
                   
@@ -706,7 +763,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
               <textarea
                 ref={inputRef}
                 className="message-input"
-                placeholder="Type your message here..."
+                placeholder={`Type your message here in ${getLanguageName(language)}...`}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
@@ -750,6 +807,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
               </select>
               <div className="input-stats">
                 <span className="character-count">{inputText.length}/2000</span>
+                <span className="language-info">Language: {getLanguageName(language)}</span>
               </div>
             </div>
           </div>
