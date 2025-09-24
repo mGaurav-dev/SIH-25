@@ -144,23 +144,49 @@ body {
   transform: scale(1.05);
 }
 
-/* Profile Dropdown */
+/* Profile Dropdown - Fixed CSS */
 .profile-dropdown {
   position: relative;
   display: inline-block;
 }
 
+.user-avatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.user-avatar:hover {
+  border-color: var(--primary-color);
+  transform: scale(1.05);
+}
+
+/* Dropdown overlay - higher z-index */
+.dropdown-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 999;
+}
+
 .dropdown-menu {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 0.5rem);
   right: 0;
   background: var(--background);
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   box-shadow: var(--shadow-lg);
-  min-width: 200px;
-  z-index: 50;
-  margin-top: 0.5rem;
+  min-width: 220px;
+  z-index: 1000;
   opacity: 0;
   transform: translateY(-10px);
   transition: all 0.2s ease;
@@ -210,7 +236,7 @@ body {
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 0.875rem 1rem;
   background: none;
   border: none;
   text-align: left;
@@ -219,6 +245,8 @@ body {
   color: var(--text-primary);
   font-size: 0.875rem;
   font-weight: 500;
+  position: relative;
+  z-index: 1001;
 }
 
 .dropdown-item:hover {
@@ -230,17 +258,44 @@ body {
   border-radius: 0 0 0.75rem 0.75rem;
 }
 
+.dropdown-item:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+  background: var(--surface);
+}
+
 .dropdown-item svg {
   width: 1.125rem;
   height: 1.125rem;
   color: var(--text-secondary);
   transition: color 0.2s ease;
+  flex-shrink: 0;
 }
 
 .dropdown-item:hover svg {
   color: var(--primary-color);
 }
 
+/* Ensure buttons are clickable */
+.dropdown-item {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.dropdown-item:active {
+  transform: scale(0.98);
+}
+
+/* Header positioning fix */
+.app-header {
+  position: relative;
+  z-index: 10;
+}
+
+.header-right {
+  position: relative;
+  z-index: 11;
+}
 /* Main Content */
 .main-content {
   display: flex;
@@ -1102,3 +1157,252 @@ select:focus-visible {
   }
 }
 
+/* Session Item with Delete Button Styles */
+.session-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  background: var(--background-secondary, #f8f9fa);
+  border: 1px solid transparent;
+}
+
+.session-item:hover {
+  background: var(--background-hover, #e9ecef);
+  border-color: var(--border-color, #dee2e6);
+}
+
+.session-item.active {
+  background: var(--primary-color, #007bff);
+  color: white;
+  border-color: var(--primary-color, #007bff);
+}
+
+.session-item.active .session-info p {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.session-item.active .session-date {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.session-icon {
+  margin-right: 12px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.session-info {
+  flex: 1;
+  min-width: 0; /* Allow text truncation */
+}
+
+.session-title {
+  font-weight: 500;
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-date {
+  font-size: 12px;
+  opacity: 0.6;
+  margin: 0;
+}
+
+/* Session Menu Styles */
+.session-menu {
+  position: relative;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.session-menu-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-menu-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.session-item.active .session-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.session-menu-btn:focus {
+  outline: 2px solid var(--primary-color, #007bff);
+  outline-offset: 2px;
+}
+
+/* Session Dropdown Menu */
+.session-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border: 1px solid var(--border-color, #dee2e6);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 140px;
+  overflow: hidden;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.session-dropdown-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+  transition: background-color 0.2s ease;
+  color: var(--text-color, #333);
+}
+
+.session-dropdown-item:hover {
+  background: var(--background-hover, #f8f9fa);
+}
+
+.session-dropdown-item.delete-item {
+  color: var(--danger-color, #dc3545);
+}
+
+.session-dropdown-item.delete-item:hover {
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.session-dropdown-item svg {
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* Dropdown Overlay */
+.dropdown-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 999;
+}
+
+/* Hide session menu button by default, show on hover */
+.session-item .session-menu {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.session-item:hover .session-menu {
+  opacity: 1;
+}
+
+.session-item.active .session-menu {
+  opacity: 1;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .session-item {
+    padding: 10px 12px;
+  }
+  
+  .session-menu {
+    opacity: 1; /* Always show on mobile */
+  }
+  
+  .session-dropdown-menu {
+    right: 8px; /* Adjust position on mobile */
+  }
+}
+
+/* Focus states for accessibility */
+.session-item:focus-within {
+  outline: 2px solid var(--primary-color, #007bff);
+  outline-offset: 2px;
+}
+
+/* Loading state */
+.session-item.loading {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Empty sessions styles (if not already defined) */
+.empty-sessions {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted, #6c757d);
+}
+
+.empty-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  opacity: 0.5;
+}
+
+.empty-sessions p {
+  margin: 8px 0;
+}
+
+.empty-subtitle {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* Dark mode support (if you have dark mode) */
+@media (prefers-color-scheme: dark) {
+  .session-dropdown-menu {
+    background: var(--background-dark, #2d3748);
+    border-color: var(--border-dark, #4a5568);
+    color: var(--text-dark, #e2e8f0);
+  }
+  
+  .session-dropdown-item {
+    color: var(--text-dark, #e2e8f0);
+  }
+  
+  .session-dropdown-item:hover {
+    background: var(--background-hover-dark, #4a5568);
+  }
+  
+  .session-dropdown-item.delete-item {
+    color: var(--danger-color-dark, #f56565);
+  }
+  
+  .session-dropdown-item.delete-item:hover {
+    background: rgba(245, 101, 101, 0.1);
+  }
+}

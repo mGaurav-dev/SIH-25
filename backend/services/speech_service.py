@@ -17,7 +17,7 @@ class SpeechService:
     """
     Backend-safe speech service with enhanced error handling and debugging
     """
-    def __init__(self, upload_folder: str):
+    def __init__(self, upload_folder: str = "uploads"):
         self.upload_folder = upload_folder
         os.makedirs(self.upload_folder, exist_ok=True)
         logger.info(f"SpeechService initialized with upload folder: {self.upload_folder}")

@@ -24,6 +24,7 @@ const AudioRecorder = ({
   const analyserRef = useRef(null);
   const audioContextRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const startTimeRef = useRef(null); // Track actual recording start time
 
   useEffect(() => {
     // Check for browser support
@@ -74,32 +75,32 @@ const AudioRecorder = ({
     chunksRef.current = [];
     setAudioLevel(0);
     setRecordingTime(0);
+    startTimeRef.current = null;
   };
 
   const getMimeType = () => {
-    // Check for supported MIME types in order of preference
+    // Try WAV first, then WebM with better codec
     const types = [
+      'audio/wav',
       'audio/webm;codecs=opus',
       'audio/webm',
       'audio/ogg;codecs=opus',
-      'audio/wav',
       'audio/mp4',
       'audio/mpeg'
     ];
-
+  
     for (const type of types) {
       if (MediaRecorder.isTypeSupported(type)) {
+        console.log(`Using MIME type: ${type}`);
         return type;
       }
     }
-
-    // Fallback to default
+  
     return '';
   };
 
   const setupAudioAnalyser = (stream) => {
     try {
-      // Create audio context for visualisation and level detection
       audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       const analyser = audioContextRef.current.createAnalyser();
@@ -109,8 +110,6 @@ const AudioRecorder = ({
       source.connect(analyser);
       
       analyserRef.current = analyser;
-      
-      // Start monitoring audio levels
       monitorAudioLevel();
     } catch (err) {
       console.warn('Could not setup audio analyser:', err);
@@ -128,7 +127,6 @@ const AudioRecorder = ({
 
       analyserRef.current.getByteFrequencyData(dataArray);
       
-      // Calculate average audio level
       let sum = 0;
       for (let i = 0; i < bufferLength; i++) {
         sum += dataArray[i];
@@ -151,7 +149,6 @@ const AudioRecorder = ({
       setRecordingState('starting');
       chunksRef.current = [];
 
-      // Request microphone access with enhanced constraints
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -166,7 +163,6 @@ const AudioRecorder = ({
       streamRef.current = stream;
       setupAudioAnalyser(stream);
 
-      // Create MediaRecorder with best available format
       const mimeType = getMimeType();
       const options = {
         mimeType: mimeType || undefined,
@@ -175,7 +171,6 @@ const AudioRecorder = ({
 
       mediaRecorderRef.current = new MediaRecorder(stream, options);
 
-      // Set up event handlers
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           chunksRef.current.push(event.data);
@@ -194,8 +189,9 @@ const AudioRecorder = ({
         cleanup();
       };
 
-      // Start recording
-      mediaRecorderRef.current.start(100); // Collect data every 100ms
+      // Start recording and track actual start time
+      mediaRecorderRef.current.start(100);
+      startTimeRef.current = Date.now();
       setIsRecording(true);
       setRecordingState('recording');
       setRecordingTime(0);
@@ -205,7 +201,6 @@ const AudioRecorder = ({
         setRecordingTime(prev => {
           const newTime = prev + 1;
           
-          // Auto-stop at max duration
           if (newTime >= maxDuration) {
             stopRecording();
           }
@@ -240,18 +235,15 @@ const AudioRecorder = ({
     setRecordingState('stopping');
     setIsRecording(false);
 
-    // Stop the media recorder
     if (mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
 
-    // Stop the timer
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
 
-    // Stop monitoring audio levels
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -264,31 +256,39 @@ const AudioRecorder = ({
         throw new Error('No audio data recorded');
       }
 
-      // Check minimum duration
-      if (recordingTime < minDuration) {
-        throw new Error(`Recording too short. Minimum ${minDuration} second(s) required.`);
+      // Calculate actual recording duration using timestamps
+      const actualDuration = startTimeRef.current ? 
+        Math.round((Date.now() - startTimeRef.current) / 1000) : recordingTime;
+
+      console.log('Recording completed:', {
+        actualDuration,
+        displayedTime: recordingTime,
+        minDuration,
+        chunks: chunksRef.current.length
+      });
+
+      // Check minimum duration using actual duration
+      if (actualDuration < minDuration) {
+        throw new Error(`Recording too short. Minimum ${minDuration} second(s) required. Recorded ${actualDuration} seconds.`);
       }
 
-      // Create blob from chunks
-      const mimeType = mediaRecorderRef.current?.mimeType || 'audio/wav';
+      const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
       const audioBlob = new Blob(chunksRef.current, { type: mimeType });
 
-      // Validate blob
       if (audioBlob.size === 0) {
         throw new Error('Audio recording is empty');
       }
 
-      if (audioBlob.size < 1000) { // Very small file might indicate no actual audio
+      if (audioBlob.size < 1000) {
         throw new Error('Audio recording appears to be empty or corrupted');
       }
 
-      console.log('Recording completed:', {
+      console.log('Audio blob created:', {
         size: audioBlob.size,
         type: audioBlob.type,
-        duration: recordingTime
+        duration: actualDuration
       });
 
-      // Call the completion handler
       if (onRecordingComplete) {
         await onRecordingComplete(audioBlob);
       }
@@ -319,16 +319,16 @@ const AudioRecorder = ({
   };
 
   const getButtonClass = () => {
-    let baseClass = 'inline-flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 relative overflow-hidden';
+    let baseClass = 'audio-record-button';
     
     if (disabled || !isSupported) {
-      baseClass += ' bg-gray-50 text-gray-300 cursor-not-allowed';
+      baseClass += ' disabled';
     } else if (recordingState === 'recording') {
-      baseClass += ' bg-red-500 text-white hover:bg-red-600 animate-pulse';
+      baseClass += ' recording';
     } else if (recordingState === 'starting' || recordingState === 'stopping' || recordingState === 'processing') {
-      baseClass += ' bg-amber-500 text-white';
+      baseClass += ' processing';
     } else {
-      baseClass += ' bg-gray-100 text-gray-700 hover:bg-gray-200 hover:scale-105 cursor-pointer';
+      baseClass += ' idle';
     }
     
     return baseClass;
@@ -338,16 +338,16 @@ const AudioRecorder = ({
     if (recordingState !== 'recording') return null;
 
     return (
-      <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-80 text-white px-2 py-1 rounded text-xs whitespace-nowrap z-50 flex items-center gap-1">
-        <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
-        <span className="font-semibold">{formatTime(recordingTime)}</span>
+      <div className="recording-tooltip">
+        <div className="pulse-indicator"></div>
+        <span className="recording-time">{formatTime(recordingTime)}</span>
         {maxDuration && (
-          <span className="opacity-70">/ {formatTime(maxDuration)}</span>
+          <span className="max-duration">/ {formatTime(maxDuration)}</span>
         )}
         {showWaveform && (
-          <div className="w-8 h-1 bg-white bg-opacity-30 rounded-full overflow-hidden ml-1">
+          <div className="audio-visualizer">
             <div 
-              className="h-full transition-all duration-100 rounded-full"
+              className="audio-level-bar"
               style={{ 
                 width: `${audioLevel * 100}%`,
                 backgroundColor: audioLevel > 0.7 ? '#ef4444' : audioLevel > 0.4 ? '#f59e0b' : '#10b981'
@@ -363,11 +363,11 @@ const AudioRecorder = ({
     if (!error) return null;
 
     return (
-      <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-red-50 border border-red-200 text-red-600 px-2 py-1.5 rounded text-xs whitespace-nowrap z-50 flex items-center gap-1 max-w-60">
+      <div className="error-tooltip">
         <AlertCircle size={16} />
         <span>{error}</span>
         <button 
-          className="ml-1 hover:text-red-800"
+          className="error-dismiss"
           onClick={() => setError(null)}
         >
           ×
@@ -383,7 +383,7 @@ const AudioRecorder = ({
       case 'starting':
       case 'stopping':
       case 'processing':
-        return <Volume2 size={20} className="animate-spin" />;
+        return <Volume2 size={20} className="spinning" />;
       default:
         return disabled ? <MicOff size={20} /> : <Mic size={20} />;
     }
@@ -406,7 +406,7 @@ const AudioRecorder = ({
 
   if (!isSupported) {
     return (
-      <div className="flex items-center gap-1 text-gray-400 text-xs">
+      <div className="audio-recorder-unsupported">
         <MicOff size={20} />
         <span>Audio recording not supported</span>
       </div>
@@ -414,7 +414,7 @@ const AudioRecorder = ({
   }
 
   return (
-    <div className={`relative inline-block ${className}`}>
+    <div className={`audio-recorder-container ${className}`}>
       {renderError()}
       
       <button

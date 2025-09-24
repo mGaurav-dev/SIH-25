@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Send, Plus, Settings, User, MessageSquare, MapPin, Sun, Bell, Menu, X, LogOut, Volume2, Play, Pause } from 'lucide-react';
+import { Mic, MicOff, Send, Plus, Settings, User, MessageSquare, MapPin, Sun, Bell, Menu, X, LogOut, Volume2, Play, Pause, Globe, Trash2, MoreVertical } from 'lucide-react';
 import apiService from '../api/api.js';
 import AudioRecorder from './AudioRecorder';
 import './AgriculturalChat.css';
@@ -26,65 +26,104 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
   
   const [inputText, setInputText] = useState('');
   const [location, setLocation] = useState(user.location || 'Narmadapuram, Madhya Pradesh, India');
-  const [language, setLanguage] = useState(user.preferred_language || 'en');
+  const [detectedLanguage, setDetectedLanguage] = useState('en');
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState(null);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [playingAudio, setPlayingAudio] = useState(null);
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(null); // For session dropdown menus
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const dropdownRef = useRef(null);
   const currentAudioRef = useRef(null);
+  const sessionMenuRef = useRef(null);
 
-  // Update user state when props change
+  // Language detection function
+  const detectLanguage = (text) => {
+    if (!text || text.trim().length < 3) return 'en';
+    
+    const hasDevanagari = /[\u0900-\u097F]/.test(text);
+    const hasTamil = /[\u0B80-\u0BFF]/.test(text);
+    const hasTelugu = /[\u0C00-\u0C7F]/.test(text);
+    const hasKannada = /[\u0C80-\u0CFF]/.test(text);
+    const hasBengali = /[\u0980-\u09FF]/.test(text);
+    const hasGujarati = /[\u0A80-\u0AFF]/.test(text);
+    
+    const asciiCount = (text.match(/[\x00-\x7F]/g) || []).length;
+    const asciiRatio = asciiCount / text.length;
+    
+    if (hasDevanagari) return 'hi';
+    if (hasTamil) return 'ta';
+    if (hasTelugu) return 'te';
+    if (hasKannada) return 'kn';
+    if (hasBengali) return 'bn';
+    if (hasGujarati) return 'gu';
+    if (asciiRatio > 0.8) return 'en';
+    
+    return 'en';
+  };
+
   useEffect(() => {
     if (propUser) {
       setUser(propUser);
       setLocation(propUser.location || 'Narmadapuram, Madhya Pradesh, India');
-      setLanguage(propUser.preferred_language || 'en');
     }
   }, [propUser]);
 
-  // Initialize component and ensure token is set
   useEffect(() => {
     initializeComponent();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+      if (apiService && apiService.clearAudioCache) {
+        apiService.clearAudioCache();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (inputText.trim()) {
+      const detected = detectLanguage(inputText);
+      setDetectedLanguage(detected);
+    }
+  }, [inputText]);
+
   const initializeComponent = async () => {
-    // Ensure apiService has the current token
     const token = localStorage.getItem('access_token');
     if (token && !apiService.getToken()) {
       apiService.setToken(token);
     }
     
-    // Load initial data
     await loadInitialData();
     getUserLocation();
   };
 
-  // Close dropdown when clicking outside
+  // Handle clicks outside session menu
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setProfileDropdownOpen(false);
       }
+      if (sessionMenuRef.current && !sessionMenuRef.current.contains(event.target)) {
+        setSessionMenuOpen(null);
+      }
     };
 
-    if (profileDropdownOpen) {
+    if (profileDropdownOpen || sessionMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-      // Cleanup audio on unmount
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
-      }
     };
-  }, [profileDropdownOpen]);
+  }, [profileDropdownOpen, sessionMenuOpen]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -111,7 +150,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
 
   const loadInitialData = async () => {
     try {
-      // Double-check that apiService has the token before making requests
       const token = localStorage.getItem('access_token');
       if (token && !apiService.getToken()) {
         apiService.setToken(token);
@@ -131,7 +169,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     } catch (error) {
       console.error('Failed to load initial data:', error);
       
-      // Handle authentication errors specifically
       if (error.message.includes('Authentication') || error.message.includes('401')) {
         setError('Session expired. Please log in again.');
         if (onLogout) {
@@ -141,7 +178,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       }
       
       setError('Failed to load chat sessions');
-      // Keep sessions empty if API fails
       setSessions([]);
     }
   };
@@ -149,7 +185,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
   const handleError = (message, error) => {
     console.error(message, error);
     
-    // Handle authentication errors
     if (error?.message?.includes('Authentication') || error?.message?.includes('401')) {
       setError('Session expired. Please log in again.');
       if (onLogout) {
@@ -177,11 +212,141 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     }
   };
 
+  const playAudio = async (audioUrl, messageId) => {
+    if (!audioUrl) {
+      console.warn('No audio URL provided');
+      return;
+    }
+
+    try {
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+        setPlayingAudio(null);
+      }
+
+      setPlayingAudio(messageId);
+      console.log(`Starting audio playback for message ${messageId}, URL: ${audioUrl}`);
+      
+      let finalAudioUrl = audioUrl;
+      
+      if (audioUrl.startsWith('/api/') || audioUrl.startsWith('/audio/')) {
+        try {
+          const audioIdMatch = audioUrl.match(/\/(\d+)$/);
+          if (audioIdMatch) {
+            const audioId = parseInt(audioIdMatch[1]);
+            console.log(`Fetching authenticated audio for ID: ${audioId}`);
+            
+            finalAudioUrl = await apiService.getAuthenticatedAudioUrl(audioId);
+            console.log(`Got authenticated audio URL: ${finalAudioUrl}`);
+          } else {
+            throw new Error('Could not extract audio ID from URL');
+          }
+        } catch (fetchError) {
+          console.error('Failed to get authenticated audio URL:', fetchError);
+          throw fetchError;
+        }
+      }
+      
+      const audio = new Audio(finalAudioUrl);
+      currentAudioRef.current = audio;
+      
+      audio.preload = 'auto';
+      audio.volume = 1.0;
+      
+      audio.addEventListener('loadstart', () => {
+        console.log(`Audio loading started for message ${messageId}`);
+      });
+      
+      audio.addEventListener('canplay', () => {
+        console.log(`Audio ready to play for message ${messageId}`);
+      });
+      
+      audio.addEventListener('ended', () => {
+        console.log(`Audio playback ended for message ${messageId}`);
+        setPlayingAudio(null);
+        currentAudioRef.current = null;
+        
+        if (finalAudioUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(finalAudioUrl);
+          console.log(`Cleaned up blob URL for message ${messageId}`);
+        }
+      });
+
+      audio.addEventListener('error', (e) => {
+        console.error(`Audio playback failed for message ${messageId}:`, e);
+        setPlayingAudio(null);
+        currentAudioRef.current = null;
+        
+        if (finalAudioUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(finalAudioUrl);
+        }
+        
+        let errorMessage = 'Failed to play audio response';
+        if (e.target?.error?.code === 4) {
+          errorMessage = 'Audio file format not supported';
+        } else if (e.target?.error?.code === 3) {
+          errorMessage = 'Audio file corrupted or incomplete';
+        } else if (e.target?.error?.code === 2) {
+          errorMessage = 'Network error while loading audio';
+        }
+        
+        handleError(errorMessage, new Error('Audio playback failed'));
+      });
+      
+      console.log(`Attempting to play audio for message ${messageId}`);
+      const playPromise = audio.play();
+      
+      if (playPromise !== undefined) {
+        await playPromise;
+        console.log(`Audio playback started successfully for message ${messageId}`);
+      }
+      
+    } catch (error) {
+      console.error(`Failed to play audio for message ${messageId}:`, error);
+      setPlayingAudio(null);
+      currentAudioRef.current = null;
+      
+      let userMessage = 'Failed to play audio response';
+      
+      if (error.message.includes('Authentication') || error.message.includes('401')) {
+        userMessage = 'Authentication failed. Please log in again.';
+        if (onLogout) {
+          setTimeout(() => onLogout(), 2000);
+        }
+      } else if (error.message.includes('NotAllowedError')) {
+        userMessage = 'Audio playback blocked by browser. Please click to enable audio.';
+      } else if (error.message.includes('NotSupportedError')) {
+        userMessage = 'Audio format not supported by your browser.';
+      } else if (error.message.includes('404')) {
+        userMessage = 'Audio file not found on server.';
+      } else if (error.message.includes('Network')) {
+        userMessage = 'Network error. Please check your connection.';
+      }
+      
+      handleError(userMessage, error);
+    }
+  };
+
+  const stopAudio = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
+      
+      const src = currentAudioRef.current.src;
+      if (src && src.startsWith('blob:')) {
+        URL.revokeObjectURL(src);
+      }
+      
+      currentAudioRef.current = null;
+    }
+    setPlayingAudio(null);
+  };
+
   const sendTextMessage = async () => {
     if (!inputText.trim() || isLoading) return;
 
     try {
-      // Ensure we're authenticated before making the request
       ensureAuthentication();
     } catch (error) {
       handleError('Authentication required. Please log in again.', error);
@@ -193,7 +358,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       message_type: 'user',
       content: inputText,
       timestamp: new Date().toISOString(),
-      original_language: language,
+      original_language: detectedLanguage,
       input_type: 'text'
     };
 
@@ -207,28 +372,41 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         query: currentInput,
         location: location,
         session_id: currentSession,
-        language: language
+        generate_audio: true
       });
 
-      // Enhanced message creation with translation support
+      console.log('Text query response:', response);
+
       const aiMessage = {
         id: Date.now() + 1,
         message_type: 'assistant',
         content: response.response || response.response_text || response.message || 'I received your message but couldn\'t generate a proper response.',
-        original_content: response.original_response || response.original_english_text || null, // Store original English
-        translated_content: response.translated_text || null, // Store translated version
+        original_content: response.original_response || response.original_english_text || null,
+        translated_content: response.translated_text || null,
         timestamp: new Date().toISOString(),
         weather_data: response.weather,
-        audio_url: response.audio_url || response.audio_download_url,
-        translated_audio_url: response.translated_audio_url || response.translated_audio_download_url,
-        response_language: response.response_language || language,
-        translation_language: response.translation_language || language,
-        detected_language: response.detected_language || language
+        audio_url: response.audio_url || response.audio_download_url || (response.audio_file_id ? `/api/audio/download/${response.audio_file_id}` : null),
+        audio_stream_url: response.audio_stream_url || (response.audio_file_id ? `/api/audio/stream/${response.audio_file_id}` : null),
+        translated_audio_url: response.translated_audio_url || (response.translated_audio_file_id ? `/api/audio/download/${response.translated_audio_file_id}` : null),
+        translated_audio_stream_url: response.translated_audio_stream_url || (response.translated_audio_file_id ? `/api/audio/stream/${response.translated_audio_file_id}` : null),
+        english_audio_url: response.english_audio_url || (response.english_audio_file_id ? `/api/audio/download/${response.english_audio_file_id}` : null),
+        response_language: response.response_language || response.detected_language || 'en',
+        translation_language: response.translation_language || response.detected_language || 'en',
+        detected_language: response.detected_language || 'en',
+        audio_file_id: response.audio_file_id,
+        translated_audio_file_id: response.translated_audio_file_id,
+        english_audio_file_id: response.english_audio_file_id
       };
+
+      console.log('Created AI message with audio URLs:', {
+        audio_url: aiMessage.audio_url,
+        translated_audio_url: aiMessage.translated_audio_url,
+        english_audio_url: aiMessage.english_audio_url,
+        audio_file_id: aiMessage.audio_file_id
+      });
 
       setMessages(prev => [...prev, aiMessage]);
       
-      // Update session if response contains session_id
       if (response.session_id && !currentSession) {
         setCurrentSession(response.session_id);
         const newSession = {
@@ -243,7 +421,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       console.error('Text query error:', error);
       let errorMessage = 'Sorry, I encountered an error processing your request. Please try again.';
       
-      // Handle specific error types from backend
       if (error.message.includes('Query cannot be empty')) {
         errorMessage = 'Please provide a question or message.';
       } else if (error.message.includes('Query too short')) {
@@ -271,59 +448,71 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
   };
 
   const handleVoiceRecording = async (audioBlob) => {
+    console.log("[CHAT] Starting voice recording handler");
+    
     try {
-      // Ensure we're authenticated before making the request
       ensureAuthentication();
     } catch (error) {
       handleError('Authentication required. Please log in again.', error);
       return;
     }
-
-    // Validate audio blob first
-    if (!apiService.validateAudioBlob(audioBlob)) {
-      handleError('Invalid audio recording. Please try again.', new Error('Invalid audio blob'));
+  
+    if (!audioBlob || audioBlob.size === 0) {
+      console.error("[CHAT] Invalid audio blob:", { size: audioBlob?.size, type: audioBlob?.type });
+      handleError('Invalid audio recording. Please try again.', new Error('Empty audio blob'));
       return;
     }
-
+  
+    console.log("[CHAT] Audio blob validation passed:", {
+      size: audioBlob.size,
+      type: audioBlob.type
+    });
+  
     setIsLoading(true);
     
     try {
+      // Test endpoint availability first
+      const endpointOk = await apiService.testVoiceEndpoint();
+      console.log("[CHAT] Voice endpoint test result:", endpointOk);
+  
       const response = await apiService.processVoiceQuery(audioBlob, {
         location: location,
         session_id: currentSession,
-        language: language,
-        translate_response: true // Request translated audio response
+        translate_response: true
       });
-
-      // Create user message with recognized text
+  
+      console.log("[CHAT] Voice query completed successfully");
+  
+      // Rest of your existing code for handling the response...
       const userMessage = {
         id: Date.now(),
         message_type: 'user',
-        content: response.recognized_text || 'Voice message processed',
+        content: response.recognized_text || response.transcription || 'Voice message processed',
         input_type: 'voice',
         timestamp: new Date().toISOString(),
-        original_language: response.detected_language || language
+        original_language: response.detected_language || 'en'
       };
-
-      // Enhanced AI response message with translation support
+  
       const aiMessage = {
         id: Date.now() + 1,
         message_type: 'assistant',
-        content: response.response_text || response.response || 'I processed your voice message.',
-        original_content: response.original_response || null, // Original English response
-        translated_content: response.translated_text || null, // Translated version if different language
-        audio_url: response.audio_url || response.audio_download_url,
-        translated_audio_url: response.translated_audio_url, // Translated audio in user's language
+        content: response.response_text || response.response || response.ai_response || 'I processed your voice message.',
+        original_content: response.original_response || null,
+        translated_content: response.translated_text || null,
         timestamp: new Date().toISOString(),
         weather_data: response.weather,
-        response_language: response.response_language || language,
-        translation_language: response.translation_language || language,
-        detected_language: response.detected_language || language
+        audio_url: response.audio_url || response.audio_download_url || (response.output_audio_id ? `/api/audio/download/${response.output_audio_id}` : null),
+        audio_stream_url: response.audio_stream_url || (response.output_audio_id ? `/api/audio/stream/${response.output_audio_id}` : null),
+        translated_audio_url: response.translated_audio_url || (response.translated_audio_id ? `/api/audio/download/${response.translated_audio_id}` : null),
+        response_language: response.response_language || 'en',
+        translation_language: response.translation_language || 'en',
+        detected_language: response.detected_language || 'en',
+        audio_file_id: response.output_audio_id,
+        translated_audio_file_id: response.translated_audio_id
       };
-
+  
       setMessages(prev => [...prev, userMessage, aiMessage]);
       
-      // Update session if response contains session_id
       if (response.session_id && !currentSession) {
         setCurrentSession(response.session_id);
         const newSession = {
@@ -335,16 +524,20 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         };
         setSessions(prev => [newSession, ...prev]);
       }
-
+  
     } catch (error) {
-      handleError('Failed to process voice input. Please try again.', error);
-      const errorMessage = {
+      console.error("[CHAT] Voice processing failed:", error);
+      
+      // Use the enhanced error message from the API service
+      handleError(error.message, error);
+      
+      const errorMessage_obj = {
         id: Date.now() + 1,
         message_type: 'assistant',
-        content: 'Sorry, I couldn\'t process your voice message. Please try again.',
+        content: error.message,
         timestamp: new Date().toISOString()
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [...prev, errorMessage_obj]);
     } finally {
       setIsLoading(false);
     }
@@ -362,9 +555,9 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         content: "Hello! How can I assist you today with your farming questions?",
         timestamp: new Date().toISOString()
       }]);
+      setSessionMenuOpen(null); // Close any open menus
     } catch (error) {
       handleError('Failed to create new session', error);
-      // Fallback: create local session
       const newSession = {
         id: Date.now(),
         title: 'New Chat',
@@ -381,20 +574,61 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     }
   };
 
-  const loadSession = async (sessionId) => {
-    try {
-      ensureAuthentication();
-      setCurrentSession(sessionId);
-      const response = await apiService.getChatMessages(sessionId);
-      setMessages(response.messages || [{
-        id: 1,
-        message_type: 'assistant',
-        content: "Hello! How can I assist you today with your farming questions?",
-        timestamp: new Date().toISOString()
-      }]);
-    } catch (error) {
-      handleError('Failed to load session', error);
-      // Fallback: show default message
+// FIXED: Enhanced loadSession function with better error handling and debugging
+const loadSession = async (sessionId) => {
+  try {
+    ensureAuthentication();
+    setCurrentSession(sessionId);
+    setIsLoading(true);
+    
+    console.log(`Loading session ${sessionId}...`);
+    
+    const response = await apiService.getChatMessages(sessionId);
+    console.log('Session messages response:', response);
+    
+    // Check if we have messages from the API response
+    if (response.messages && Array.isArray(response.messages)) {
+      if (response.messages.length > 0) {
+        // Transform the messages to match frontend format
+        const transformedMessages = response.messages.map(msg => {
+          console.log('Transforming message:', msg);
+          
+          // FIXED: Handle both timestamp formats properly
+          let messageTimestamp = msg.timestamp;
+          if (!messageTimestamp) {
+            messageTimestamp = msg.created_at || new Date().toISOString();
+          }
+          
+          return {
+            id: msg.id,
+            message_type: msg.message_type,
+            content: msg.content,
+            timestamp: messageTimestamp,
+            original_language: msg.original_language,
+            input_type: msg.input_type || 'text',
+            location: msg.location,
+            weather_data: msg.weather_data,
+            audio_url: msg.audio_url,
+            audio_stream_url: msg.audio_stream_url,
+            detected_language: msg.original_language || 'en'
+          };
+        });
+        
+        console.log(`Transformed ${transformedMessages.length} messages for session ${sessionId}`);
+        setMessages(transformedMessages);
+      } else {
+        console.log(`Session ${sessionId} has no messages, showing default greeting`);
+        // Show default greeting if session has no messages
+        setMessages([{
+          id: 1,
+          message_type: 'assistant',
+          content: "Hello! How can I assist you today with your farming questions?",
+          timestamp: new Date().toISOString()
+        }]);
+      }
+    } else {
+      console.warn('Invalid messages format in response:', response);
+      // Show default greeting on invalid response
       setMessages([{
         id: 1,
         message_type: 'assistant',
@@ -402,54 +636,64 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         timestamp: new Date().toISOString()
       }]);
     }
-  };
+    
+    setSessionMenuOpen(null); // Close any open menus
+    
+  } catch (error) {
+    console.error('Failed to load session:', error);
+    handleError('Failed to load session', error);
+    
+    // Show default greeting on error
+    setMessages([{
+      id: 1,
+      message_type: 'assistant',
+      content: "Hello! How can I assist you today with your farming questions?",
+      timestamp: new Date().toISOString()
+    }]);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
-  const playAudio = async (audioUrl, messageId) => {
-    if (!audioUrl) {
-      console.warn('No audio URL provided');
+  // NEW: Delete session function
+  const deleteSession = async (sessionId, event) => {
+    // Prevent triggering loadSession when clicking delete
+    event.stopPropagation();
+    
+    if (!confirm('Are you sure you want to delete this chat? This action cannot be undone.')) {
       return;
     }
-
+    
     try {
-      // Stop any currently playing audio
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
-        setPlayingAudio(null);
-      }
-
-      setPlayingAudio(messageId);
+      ensureAuthentication();
+      await apiService.deleteChatSession(sessionId);
       
-      const audio = new Audio(audioUrl);
-      currentAudioRef.current = audio;
-
-      audio.addEventListener('ended', () => {
-        setPlayingAudio(null);
-        currentAudioRef.current = null;
-      });
-
-      audio.addEventListener('error', (e) => {
-        console.error('Audio playback failed:', e);
-        setPlayingAudio(null);
-        currentAudioRef.current = null;
-        handleError('Failed to play audio response', new Error('Audio playback failed'));
-      });
-
-      await audio.play();
+      // Remove session from local state
+      setSessions(prev => prev.filter(session => session.id !== sessionId));
+      
+      // If we deleted the current session, reset to default
+      if (currentSession === sessionId) {
+        setCurrentSession(null);
+        setMessages([{
+          id: 1,
+          message_type: 'assistant',
+          content: "Hello! How can I assist you today with your farming questions?",
+          timestamp: new Date().toISOString()
+        }]);
+      }
+      
+      setSessionMenuOpen(null);
+      console.log(`Session ${sessionId} deleted successfully`);
+      
     } catch (error) {
-      console.error('Failed to play audio:', error);
-      setPlayingAudio(null);
-      currentAudioRef.current = null;
-      handleError('Failed to play audio response', error);
+      console.error('Failed to delete session:', error);
+      handleError('Failed to delete session', error);
     }
   };
 
-  const stopAudio = () => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current = null;
-    }
-    setPlayingAudio(null);
+  const toggleSessionMenu = (sessionId, event) => {
+    event.stopPropagation(); // Prevent triggering loadSession
+    setSessionMenuOpen(sessionMenuOpen === sessionId ? null : sessionId);
   };
 
   const handleKeyPress = (e) => {
@@ -467,20 +711,77 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     setProfileDropdownOpen(!profileDropdownOpen);
   };
 
-  const handleSettings = () => {
-    setProfileDropdownOpen(false);
-    if (onNavigate) {
+  // Updated handleSettings and handleLogoutClick functions for AgriculturalChat.jsx
+
+// Fixed handleSettings and handleLogoutClick functions for AgriculturalChat.jsx
+
+const handleSettings = (e) => {
+  console.log('=== SETTINGS CLICKED ===');
+  
+  // Prevent event bubbling
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  
+  console.log('onNavigate function exists:', typeof onNavigate === 'function');
+  console.log('onNavigate value:', onNavigate);
+  
+  // Close dropdown first
+  setProfileDropdownOpen(false);
+  
+  if (onNavigate && typeof onNavigate === 'function') {
+    console.log('Calling onNavigate with "settings"');
+    // Add small delay to ensure dropdown closes first
+    setTimeout(() => {
       onNavigate('settings');
-    }
-  };
+    }, 100);
+    console.log('onNavigate call completed');
+  } else {
+    console.error('onNavigate function not provided or not a function');
+    console.log('All props:', { onNavigate, onLogout, user: !!user });
+  }
+};
 
-  const handleLogoutClick = () => {
-    setProfileDropdownOpen(false);
-    if (onLogout) {
-      onLogout();
+const handleLogoutClick = (e) => {
+  console.log('=== LOGOUT CLICKED ===');
+  
+  // Prevent event bubbling
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  
+  console.log('onLogout function exists:', typeof onLogout === 'function');
+  console.log('onLogout value:', onLogout);
+  
+  // Close dropdown first
+  setProfileDropdownOpen(false);
+  
+  // Show confirmation dialog
+  if (confirm('Are you sure you want to logout?')) {
+    console.log('User confirmed logout');
+    
+    if (onLogout && typeof onLogout === 'function') {
+      console.log('Calling onLogout function');
+      // Add small delay to ensure dropdown closes first
+      setTimeout(() => {
+        onLogout();
+      }, 100);
+      console.log('onLogout call completed');
+    } else {
+      console.error('onLogout function not provided or not a function');
+      console.log('Performing manual logout');
+      
+      // Manual logout as fallback
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('user_data');
+      window.location.reload();
     }
-  };
-
+  } else {
+    console.log('User cancelled logout');
+  }
+};
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -515,7 +816,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     }
   }, [inputText]);
 
-  // Enhanced audio controls with better language prioritization
+  // Enhanced audio controls with better error handling
   const renderAudioControls = (message) => {
     const hasOriginalAudio = message.audio_url && !message.translated_audio_url;
     const hasTranslatedAudio = message.translated_audio_url;
@@ -524,36 +825,65 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
     const isPlaying = playingAudio === message.id;
     const isTranslatedPlaying = playingAudio === `${message.id}_translated`;
     
+    console.log(`Rendering audio controls for message ${message.id}:`, {
+      hasOriginalAudio,
+      hasTranslatedAudio,
+      hasBothAudios,
+      audio_url: message.audio_url,
+      translated_audio_url: message.translated_audio_url,
+      audio_file_id: message.audio_file_id
+    });
+    
     if (!hasOriginalAudio && !hasTranslatedAudio) {
       return null;
     }
 
+    const handleAudioPlay = async (audioUrl, playbackId) => {
+      try {
+        console.log(`Audio button clicked - URL: ${audioUrl}, ID: ${playbackId}`);
+        if (playingAudio === playbackId) {
+          stopAudio();
+        } else {
+          await playAudio(audioUrl, playbackId);
+        }
+      } catch (error) {
+        console.error('Audio playback error:', error);
+        handleError('Failed to play audio', error);
+      }
+    };
+
     return (
       <div className="audio-controls">
-        {/* Primary audio button - prioritize user's language */}
         {hasTranslatedAudio && (
           <button 
             className={`audio-btn primary ${isTranslatedPlaying ? 'playing' : ''}`}
-            onClick={() => isTranslatedPlaying ? stopAudio() : playAudio(message.translated_audio_url, `${message.id}_translated`)}
-            title={`Play response in ${getLanguageName(message.translation_language || language)}`}
+            onClick={() => handleAudioPlay(message.translated_audio_url, `${message.id}_translated`)}
+            title={`Play response in ${getLanguageName(message.translation_language || message.detected_language || 'en')}`}
+            disabled={isLoading}
           >
             {isTranslatedPlaying ? <Pause size={16} /> : <Play size={16} />}
             <Volume2 size={14} />
-            <span>{getLanguageName(message.translation_language || language)}</span>
+            <span>{getLanguageName(message.translation_language || message.detected_language || 'en')}</span>
           </button>
         )}
         
-        {/* Show original audio button */}
         {hasOriginalAudio && (
           <button 
             className={`audio-btn ${hasBothAudios ? 'secondary' : 'primary'} ${isPlaying ? 'playing' : ''}`}
-            onClick={() => isPlaying ? stopAudio() : playAudio(message.audio_url, message.id)}
+            onClick={() => handleAudioPlay(message.audio_url, message.id)}
             title={hasBothAudios ? "Play original English response" : "Play audio response"}
+            disabled={isLoading}
           >
             {isPlaying ? <Pause size={16} /> : <Play size={16} />}
             <Volume2 size={14} />
             <span>{hasBothAudios ? 'English' : 'Audio'}</span>
           </button>
+        )}
+        
+        {apiService.debugMode && (
+          <small style={{ color: '#666', fontSize: '10px', marginLeft: '8px' }}>
+            ID: {message.audio_file_id || 'N/A'}
+          </small>
         )}
       </div>
     );
@@ -561,7 +891,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
 
   // Enhanced message content rendering with proper translation display
   const renderMessageContent = (message) => {
-    // For user messages in non-English, show both original and translation if available
     if (message.message_type === 'user' && message.original_language && message.original_language !== 'en') {
       return (
         <div className="message-text-content">
@@ -580,9 +909,8 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       );
     }
 
-    // For assistant messages, prioritize user's language
     if (message.message_type === 'assistant') {
-      const userLanguage = language || 'en';
+      const userLanguage = message.detected_language || 'en';
       const showOriginal = message.original_content && 
                           message.original_content !== message.content &&
                           userLanguage !== 'en' &&
@@ -591,7 +919,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       return (
         <div className="message-text-content">
           <div className={`message-bubble ${message.message_type}`}>
-            {message.content} {/* This should be in user's language */}
+            {message.content}
           </div>
           
           {showOriginal && (
@@ -606,7 +934,6 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
       );
     }
 
-    // Default case
     return (
       <div className="message-text-content">
         <div className={`message-bubble ${message.message_type}`}>
@@ -645,38 +972,48 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
             <Bell />
           </button>
           <div className="profile-dropdown" ref={dropdownRef}>
+  <div 
+    className="user-avatar" 
+    style={{backgroundImage: `url(${user.avatar})`}}
+    onClick={toggleProfileDropdown}
+  ></div>
+  {profileDropdownOpen && (
+    <>
+      <div className="dropdown-overlay" onClick={() => setProfileDropdownOpen(false)}></div>
+      <div className="dropdown-menu open">
+        <div className="dropdown-header">
+          <div className="dropdown-user-info">
             <div 
-              className="user-avatar" 
+              className="dropdown-avatar" 
               style={{backgroundImage: `url(${user.avatar})`}}
-              onClick={toggleProfileDropdown}
             ></div>
-            {profileDropdownOpen && (
-              <>
-                <div className="dropdown-overlay" onClick={() => setProfileDropdownOpen(false)}></div>
-                <div className={`dropdown-menu ${profileDropdownOpen ? 'open' : ''}`}>
-                  <div className="dropdown-header">
-                    <div className="dropdown-user-info">
-                      <div 
-                        className="dropdown-avatar" 
-                        style={{backgroundImage: `url(${user.avatar})`}}
-                      ></div>
-                      <div className="dropdown-user-details">
-                        <h4>{user.name}</h4>
-                        <p>{user.location}</p>
-                      </div>
-                    </div>
-                  </div>
-                  <button className="dropdown-item" onClick={handleSettings}>
-                    <Settings />
-                    <span>Settings</span>
-                  </button>
-                  <button className="dropdown-item" onClick={handleLogoutClick}>
-                    <LogOut />
-                    <span>Logout</span>
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="dropdown-user-details">
+              <h4>{user.name}</h4>
+              <p>{user.location}</p>
+            </div>
+          </div>
+        </div>
+        
+        <button 
+          className="dropdown-item" 
+          onClick={handleSettings}
+          type="button"
+        >
+          <Settings />
+          <span>Settings</span>
+        </button>
+        
+        <button 
+          className="dropdown-item" 
+          onClick={handleLogoutClick}
+          type="button"
+        >
+          <LogOut />
+          <span>Logout</span>
+        </button>
+      </div>
+    </>
+  )}
           </div>
         </div>
       </header>
@@ -686,7 +1023,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
         <div className="chat-container">
           <div className="chat-header">
             <h2>Ask AgriAssist</h2>
-            <p>Your AI-powered farming expert. Ready to help.</p>
+            <p>Your AI-powered farming expert. Ready to help in any language.</p>
             <div className="location-info">
               <MapPin className="location-icon" />
               <span>{location}</span>
@@ -716,6 +1053,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
                     )}
                     {message.detected_language && message.detected_language !== 'en' && (
                       <div className="language-indicator">
+                        <Globe size={12} />
                         <span>{getLanguageName(message.detected_language)}</span>
                       </div>
                     )}
@@ -763,7 +1101,7 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
               <textarea
                 ref={inputRef}
                 className="message-input"
-                placeholder={`Type your message here in ${getLanguageName(language)}...`}
+                placeholder="Type your message in any language..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
@@ -777,7 +1115,8 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
                   maxDuration={120}
                   minDuration={1}
                   showWaveform={true}
-                  audioFormat="wav"
+                  audioFormat="webm"
+                  className="voice-recorder"
                 />
                 <button
                   className="send-btn"
@@ -790,30 +1129,23 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
             </div>
             
             <div className="input-footer">
-              <select 
-                value={language} 
-                onChange={(e) => setLanguage(e.target.value)}
-                className="language-select"
-                disabled={isLoading}
-              >
-                <option value="en">English</option>
-                <option value="hi">हिंदी (Hindi)</option>
-                <option value="mr">मराठी (Marathi)</option>
-                <option value="gu">ગુજરાતી (Gujarati)</option>
-                <option value="ta">தமிழ் (Tamil)</option>
-                <option value="te">తెలుగు (Telugu)</option>
-                <option value="kn">ಕನ್ನಡ (Kannada)</option>
-                <option value="bn">বাংলা (Bengali)</option>
-              </select>
+              <div className="auto-detect-info">
+                {inputText.trim() && (
+                  <div className="language-detection">
+                    <Globe size={14} />
+                    <span>Detected: {getLanguageName(detectedLanguage)}</span>
+                  </div>
+                )}
+              </div>
               <div className="input-stats">
                 <span className="character-count">{inputText.length}/2000</span>
-                <span className="language-info">Language: {getLanguageName(language)}</span>
+                <span className="auto-language-info">Language automatically detected</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar with Delete Functionality */}
         <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
           <div className="sidebar-header">
             <h3>Chat History</h3>
@@ -844,85 +1176,35 @@ const AgriculturalChat = ({ user: propUser, onLogout, onNavigate }) => {
                     <p className="session-title">{session.title}</p>
                     <p className="session-date">{session.created_at}</p>
                   </div>
+                  <div className="session-menu" ref={sessionMenuOpen === session.id ? sessionMenuRef : null}>
+                    <button
+                      className="session-menu-btn"
+                      onClick={(e) => toggleSessionMenu(session.id, e)}
+                      title="More options"
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {sessionMenuOpen === session.id && (
+                      <>
+                        <div className="dropdown-overlay" onClick={() => setSessionMenuOpen(null)}></div>
+                        <div className="session-dropdown-menu">
+                          <button
+                            className="session-dropdown-item delete-item"
+                            onClick={(e) => deleteSession(session.id, e)}
+                          >
+                            <Trash2 size={14} />
+                            <span>Delete Chat</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))
             )}
           </div>
         </aside>
       </main>
-
-      <style jsx>{`
-        .audio-controls {
-          display: flex;
-          gap: 8px;
-          margin-top: 8px;
-          align-items: center;
-        }
-
-        .audio-btn {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          padding: 6px 10px;
-          background: rgba(0, 0, 0, 0.05);
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 16px;
-          color: #374151;
-          font-size: 12px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .audio-btn:hover {
-          background: rgba(0, 0, 0, 0.1);
-          transform: translateY(-1px);
-        }
-
-        .audio-btn.playing {
-          background: #3b82f6;
-          color: white;
-          border-color: #3b82f6;
-        }
-
-        .audio-btn.translated {
-          background: #10b981;
-          color: white;
-          border-color: #10b981;
-        }
-
-        .audio-btn.translated:hover {
-          background: #059669;
-        }
-
-        .message-text-content {
-          width: 100%;
-        }
-
-        .message-bubble.translated {
-          margin-top: 8px;
-          background: #f0f9ff;
-          border-left: 3px solid #3b82f6;
-          padding: 12px;
-        }
-
-        .translation-label {
-          font-size: 11px;
-          color: #6b7280;
-          margin-bottom: 6px;
-          font-weight: 500;
-        }
-
-        .voice-indicator {
-          display: flex;
-          align-items: center;
-          gap: 2px;
-          background: rgba(16, 185, 129, 0.1);
-          padding: 2px 6px;
-          border-radius: 10px;
-          color: #10b981;
-          font-size: 10px;
-        }
-      `}</style>
     </div>
   );
 };
