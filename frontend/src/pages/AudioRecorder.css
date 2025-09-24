@@ -1,8 +1,12 @@
-/* Fixed AudioRecorder.css - Pure CSS (No Tailwind) */
+/* Fixed AudioRecorder.css - Complete CSS with Icon Visibility */
 
 .audio-recorder-container {
   position: relative;
   display: inline-block;
+}
+
+.voice-recorder {
+  /* Add any wrapper-specific styles here */
 }
 
 .audio-record-button {
@@ -19,6 +23,7 @@
   overflow: hidden;
   outline: none;
   user-select: none;
+  flex-shrink: 0;
 }
 
 /* Button states */
@@ -28,7 +33,7 @@
   border: 1px solid #e5e7eb;
 }
 
-.audio-record-button.idle:hover {
+.audio-record-button.idle:hover:not(:disabled) {
   background-color: #10b981;
   color: white;
   transform: scale(1.05);
@@ -58,6 +63,19 @@
   color: #d1d5db;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.audio-record-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Ensure icons are visible and properly sized */
+.audio-record-button svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: block;
 }
 
 /* Pulse animation for recording */
@@ -103,6 +121,7 @@
   align-items: center;
   gap: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: fadeInTooltip 0.2s ease;
 }
 
 .recording-tooltip::after {
@@ -115,12 +134,24 @@
   border-top-color: rgba(0, 0, 0, 0.9);
 }
 
+@keyframes fadeInTooltip {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .pulse-indicator {
   width: 6px;
   height: 6px;
   background-color: #ef4444;
   border-radius: 50%;
   animation: pulse-dot 1.5s infinite;
+  flex-shrink: 0;
 }
 
 @keyframes pulse-dot {
@@ -142,11 +173,13 @@
   font-weight: 600;
   color: #ef4444;
   font-variant-numeric: tabular-nums;
+  font-size: 12px;
 }
 
 .max-duration {
   opacity: 0.7;
   font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .audio-visualizer {
@@ -156,6 +189,7 @@
   border-radius: 2px;
   overflow: hidden;
   margin-left: 4px;
+  flex-shrink: 0;
 }
 
 .audio-level-bar {
@@ -177,7 +211,6 @@
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 12px;
-  white-space: nowrap;
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -186,6 +219,7 @@
   max-width: 280px;
   word-wrap: break-word;
   white-space: normal;
+  animation: fadeInTooltip 0.2s ease;
 }
 
 .error-tooltip::after {
@@ -198,6 +232,12 @@
   border-top-color: #fecaca;
 }
 
+.error-tooltip svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
 .error-dismiss {
   background: none;
   border: none;
@@ -208,6 +248,7 @@
   padding: 0;
   margin-left: 4px;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .error-dismiss:hover {
@@ -227,6 +268,12 @@
   border-radius: 8px;
 }
 
+.audio-recorder-unsupported svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
 /* Focus states for accessibility */
 .audio-record-button:focus {
   outline: 2px solid #3b82f6;
@@ -237,11 +284,35 @@
   outline: none;
 }
 
+.audio-record-button:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Button press animation */
+.audio-record-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.audio-record-button.recording:active {
+  transform: scale(1.02);
+}
+
+/* Hover states */
+.audio-record-button:hover:not(:disabled) {
+  transition: all 0.2s ease;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .audio-record-button {
     width: 36px;
     height: 36px;
+  }
+  
+  .audio-record-button svg {
+    width: 18px;
+    height: 18px;
   }
   
   .recording-tooltip,
@@ -263,6 +334,11 @@
     height: 32px;
   }
   
+  .audio-record-button svg {
+    width: 16px;
+    height: 16px;
+  }
+  
   .recording-tooltip,
   .error-tooltip {
     font-size: 10px;
@@ -270,15 +346,6 @@
     max-width: 200px;
     bottom: 40px;
   }
-}
-
-/* Button press animation */
-.audio-record-button:active {
-  transform: scale(0.95);
-}
-
-.audio-record-button.recording:active {
-  transform: scale(1.02);
 }
 
 /* High contrast mode support */
@@ -306,11 +373,32 @@
   
   .pulse-recording,
   .pulse-dot,
-  .spinning {
+  .spinning,
+  .fadeInTooltip {
     animation: none;
   }
   
   .audio-record-button:hover {
     transform: none;
+  }
+}
+
+/* Dark theme support (if needed) */
+@media (prefers-color-scheme: dark) {
+  .audio-record-button.idle {
+    background-color: #374151;
+    color: #d1d5db;
+    border-color: #4b5563;
+  }
+  
+  .audio-record-button.idle:hover:not(:disabled) {
+    background-color: #10b981;
+    color: white;
+  }
+  
+  .audio-recorder-unsupported {
+    background-color: #374151;
+    border-color: #4b5563;
+    color: #9ca3af;
   }
 }
